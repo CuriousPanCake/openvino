@@ -39,6 +39,8 @@ ReduceType get_reduce_type(const std::shared_ptr<ov::Node>& reduce_node) {
 
 ov::pass::PullSqueezeThroughEltwise::PullSqueezeThroughEltwise() {
     MATCHER_SCOPE(PullSqueezeThroughEltwise);
+
+    //leaving a test comment
     auto eltwise_pattern = pattern::wrap_type<op::util::BinaryElementwiseArithmetic>();
 
     auto squeeze_axes_pattern = pattern::wrap_type<ov::op::v0::Constant>();
