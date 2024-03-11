@@ -14,6 +14,9 @@
 using namespace ov;
 
 ov::pass::low_precision::MarkupQuantizationGranularity::MarkupQuantizationGranularity(
+
+
+
     const std::vector<QuantizationGranularityRestriction>& restrictions) {
     for (const auto& restriction : restrictions) {
         const auto it = restrictionsByOperation.find(restriction.operationType.name);
