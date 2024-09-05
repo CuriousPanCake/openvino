@@ -22,6 +22,8 @@
 #include "openvino/pass/pass.hpp"
 #include "transformations/utils/utils.hpp"
 
+#include "openvino/op/util/multi_subgraph_base.hpp"
+
 namespace ov {
 namespace pass {
 
@@ -241,8 +243,91 @@ public:
     }
 };
 
+// using NodeWithInputs = std::pair<std::shared_ptr<ov::Node>, std::vector<bool>>;
+using NodePtr = std::shared_ptr<ov::Node>;
+
+static void recurse_down_dfs(const NodePtr& node, std::unordered_set<NodePtr>& path_nodes, const std::vector<std::string>& end_nodes) {
+    if (path_nodes.find(node) != path_nodes.end()) { // the node has already been processed
+        return;
+    }
+
+    path_nodes.insert(node);
+
+    bool is_ending_node = false;
+    for (auto& name : end_nodes) { //TODO: change to std::any_of
+        if (node->get_name() == name) {
+            is_ending_node = true;
+            break;
+        }
+    }
+
+    if (std::dynamic_pointer_cast<ov::op::v0::Result>(node) || // What other types we consider as end nodes?
+        std::dynamic_pointer_cast<ov::op::v3::Assign>(node) ||
+        is_ending_node) {
+            return;
+    }
+
+    for (auto& output : node->outputs()) {
+        for (auto& input : output.get_target_inputs()) {
+            recurse_down_dfs(input.get_node()->shared_from_this(), path_nodes, end_nodes);
+        }
+    }
+}
+
+static void dump_partially(std::ostream& os, const std::shared_ptr<ov::Model>& model, const std::vector<std::string>& start_nodes, const std::vector<std::string>& end_nodes) {
+    std::unordered_set<NodePtr> path_nodes;
+
+    std::cout << "----" << std::endl;
+    for (auto& op : model->get_ordered_ops()) {
+        for (auto& start_node_name : start_nodes) {
+            if (op->get_name() == start_node_name) { // found a node with a given name, we can start processing it
+                recurse_down_dfs(op, path_nodes, end_nodes);
+            }
+        }
+    }
+
+    std::unordered_set<NodePtr> printed;
+
+    for (auto& op : model->get_ordered_ops()) {
+        if (path_nodes.find(op) != path_nodes.end()) {
+            std::vector<std::string> node_inputs_names;
+            for (auto& input : op->input_values()) {
+                std::string input_name = input.get_node_shared_ptr()->get_name();
+                if (printed.find(input.get_node_shared_ptr()) == printed.end()) {
+                    if (path_nodes.find(input.get_node_shared_ptr()) == path_nodes.end()) { // if we haven't found the node in the path list, we have to fake this node as a Parameter
+                        if (!std::dynamic_pointer_cast<ov::op::v0::Constant>(input.get_node_shared_ptr()) && // But if it's a constant or a Parameter we may just reuse them without faking
+                            !std::dynamic_pointer_cast<ov::op::v0::Parameter>(input.get_node_shared_ptr())) {
+                                input_name.insert(0, "Fake_");
+                        }
+                    }
+                    auto print_node = "auto " + input_name + " = makeOP<" + input.get_node_shared_ptr()->get_type_info().get_version() + "::" + std::string(input.get_node_shared_ptr()->get_type_name()) + ">()";
+                    std::cout << print_node << std::endl;
+                }
+                node_inputs_names.push_back(input_name);
+            }
+            auto print_node = "auto " + op->get_name() + " = makeOP<" + op->get_type_info().get_version() + "::" + std::string(op->get_type_name()) + ">(";
+            for (size_t i = 0; i < node_inputs_names.size(); ++i) {
+                print_node += node_inputs_names[i] + (i == node_inputs_names.size() - 1 ? "" : ", ");
+            }
+            print_node += ");";
+            std::cout << print_node << std::endl;
+            printed.insert(op);
+            std::cout << std::endl;
+        }
+    }
+
+    std::cout << "----" << std::endl;
+}
+
 template <typename UNUSED_T = void>
 void dump_cpp_style(std::ostream& os, const std::shared_ptr<ov::Model>& model) {
+    // dump_partially(os, model, {"Reshape_74854"}, {"ScaledDotProductAttention_74890"});
+    // dump_partially(os, model, {"Gather_74838"}, {"ScaledDotProductAttention_74890"});
+    dump_partially(os, model, {"Constant_74836", "Gather_74838", "Reshape_74854", "Add_74878"}, {"ScaledDotProductAttention_74890", "Transpose_74886"});
+}
+
+template <typename UNUSED_T = void>
+void dump_cpp_style_old(std::ostream& os, const std::shared_ptr<ov::Model>& model) {
     const ov::Model& f = *model;
     std::string prefix = "";
     std::string tag = "";
