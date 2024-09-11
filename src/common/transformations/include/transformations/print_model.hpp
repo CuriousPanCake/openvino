@@ -24,6 +24,8 @@
 
 #include "openvino/op/util/multi_subgraph_base.hpp"
 
+#include "transformations/utils/gen_pattern.hpp"
+
 namespace ov {
 namespace pass {
 
@@ -37,15 +39,42 @@ inline std::string to_code(const std::string& value) {
     return std::string("\"") + value + "\"";
 }
 inline std::string to_code(const element::Type& value) {
-    return std::string("element::") + value.to_string();
+    return std::string("ov::element::") + value.to_string();
 }
-inline std::string to_code(const ov::Shape& value) {
-    std::stringstream ss;
-    ss << "ov::Shape({";
-    for (auto& d : value)
-        ss << d << ",";
-    ss << "})";
-    return ss.str();
+
+template <typename T>
+std::string shape_to_code_as_list(const T& value);
+
+template<>
+inline std::string shape_to_code_as_list<ov::PartialShape>(const ov::PartialShape& shape) {
+    std::string string = "{";
+    auto sep = "";
+    for (size_t i = 0; i < shape.size(); ++i) {
+        string += sep;
+        if (shape[i].is_dynamic()) {
+            string += "ov::Dimension::dynamic()";
+        } else {
+            string += std::to_string(shape[i].get_min_length());
+        }
+        sep = ", ";
+    }
+    string += "}";
+
+    return string;
+}
+
+template<>
+inline std::string shape_to_code_as_list<std::vector<int64_t>>(const std::vector<int64_t>& shape) {
+    std::string string = "{";
+    auto sep = "";
+    for (size_t i = 0; i < shape.size(); ++i) {
+        string += sep;
+        string += std::to_string(shape[i]);
+        sep = ", ";
+    }
+    string += "}";
+
+    return string;
 }
 inline std::string to_code(int value) {
     if (INT_MAX == value) {
@@ -120,22 +149,22 @@ inline std::string to_code(double value) {
     return to_code_float(value);
 }
 template <typename T>
-std::string to_code(const std::vector<T>& values, bool no_braces = false, int maxsize = 80) {
-    std::stringstream ss;
+std::string to_code(const std::vector<T>& values, bool no_braces = false, size_t max_elements = 5) {
+    std::string string;
     if (!no_braces)
-        ss << "{";
-    const char* sep = "";
-    for (auto& v : values) {
-        if (ss.tellp() > maxsize) {
-            ss << "... (" << values.size() << " in total)";
-            break;
-        }
-        ss << sep << to_code(v);
-        sep = ",";
+        string += "{";
+    auto sep = "";
+    for (size_t i = 0; i < values.size() && i < max_elements; ++i) {
+        string += sep;
+        string += to_code(values[i]);
+        sep = ", ";
+    }
+    if (values.size() > max_elements) {
+        string += "... (" + std::to_string(values.size()) + " in total)";
     }
     if (!no_braces)
-        ss << "}";
-    return ss.str();
+        string += "}";
+    return string;
 }
 
 template <typename T = void>
@@ -159,7 +188,7 @@ std::string to_code(std::shared_ptr<ov::op::v0::Constant> constop, bool force_br
     if (!no_braces)
         ss << "{";
     auto ele_size = shape_size(constop->get_shape());
-    if (ele_size < 9) {
+    if (ele_size < 5) {
         const char* sep = "";
         for (auto v : constop->get_value_strings()) {
             ss << sep << v;
@@ -172,6 +201,40 @@ std::string to_code(std::shared_ptr<ov::op::v0::Constant> constop, bool force_br
         ss << "}";
     return ss.str();
 }
+
+// void foo() {
+    // TODO: make shape of string
+    //auto Constant_74836 = ov::gen_pattern::makeConst(ov::element::i64, {}, {0});
+    //auto Fake_ReadValue_74834 = ov::gen_pattern::makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {ov::Dimension::dynamic(), 12, ov::Dimension::dynamic(), 64}}});
+    //auto Parameter_73865 = ov::gen_pattern::makeOP<opset1::Parameter>({}, {{"element_type", ov::element::i32}, {"shape", {ov::Dimension::dynamic()}}});
+    //auto Gather_74838 = ov::gen_pattern::makeOP<opset8::Gather>({Fake_ReadValue_74834, Parameter_73865, Constant_74836}, {{"batch_dims", 0}});
+
+    //auto Fake_Add_74850 = makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {ov::Dimension::dynamic(), ov::Dimension::dynamic(), 768}}});
+    //auto Constant_74852 = makeConst(ov::element::i64, {4}, {0, 0, 12, 64});
+    //auto Reshape_74854 = makeOP<opset1::Reshape>({Fake_Add_74850, Constant_74852}, {{"special_zero", true}});
+
+    //auto Constant_74856 = makeConst(ov::element::i32, {4}, {0, 2, 1, 3});
+    //auto Transpose_74858 = makeOP<opset1::Transpose>({Reshape_74854, Constant_74856}, {});
+
+    //auto Concat_74860 = makeOP<opset1::Concat>({Gather_74838, Transpose_74858}, {{"axis", 2}});
+
+    //auto Fake_MatMul_74872 = makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {ov::Dimension::dynamic(), ov::Dimension::dynamic(), 768}}});
+    //auto Fake_Convert_74876 = makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {768}}});
+    //auto Add_74878 = makeOP<opset1::Add>({Fake_MatMul_74872, Fake_Convert_74876}, {{"auto_broadcast", "numpy"}});
+
+    //auto Constant_74880 = makeConst(ov::element::i64, {4}, {0, 0, 12, 64});
+    //auto Reshape_74882 = makeOP<opset1::Reshape>({Add_74878, Constant_74880}, {{"special_zero", true}});
+
+    //auto Constant_74884 = makeConst(ov::element::i32, {4}, {0, 2, 1, 3});
+    //auto Transpose_74886 = makeOP<opset1::Transpose>({Reshape_74882, Constant_74884}, {});
+
+    //auto Fake_Multiply_74832 = makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {ov::Dimension::dynamic(), 12, ov::Dimension::dynamic(), 64}}});
+    //auto Fake_Concat_74888 = makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {ov::Dimension::dynamic(), 12, ov::Dimension::dynamic(), 64}}});
+    //auto Fake_Select_74526 = makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {ov::Dimension::dynamic(), 1, ov::Dimension::dynamic(), ov::Dimension::dynamic()}}});
+    //auto ScaledDotProductAttention_74890 = makeOP<opset13::ScaledDotProductAttention>({Fake_Multiply_74832, Concat_74860, Fake_Concat_74888, Fake_Select_74526}, {{"causal", false}});
+
+    //auto Assign_76466 = makeOP<opset6::Assign>({Concat_74860}, {{"variable_id", past_key_values.2.keypresent.2.key[?,12,?,64]f32}});
+// }
 
 class OstreamAttributeVisitor : public ov::AttributeVisitor {
     std::ostream& os;
@@ -195,6 +258,10 @@ public:
         } else if (auto a = ov::as_type<ov::AttributeAdapter<ov::PartialShape>>(&adapter)) {
             const auto& value = a->get();
             append_attribute(name, value.to_string());
+        //     append_attribute(name, shape_to_code_as_list<ov::PartialShape>(value));
+        // } else if (auto a = ov::as_type<ov::AttributeAdapter<ov::Shape>>(&adapter)) {
+        //     const auto& value = a->get();
+        //     append_attribute(name, shape_to_code_as_list<std::vector<int64_t>>(value));
         } else if (auto a = ov::as_type<ov::AttributeAdapter<std::shared_ptr<ov::op::util::Variable>>>(&adapter)) {
             const auto& vinfo = a->get()->get_info();
             std::stringstream ss;
@@ -246,7 +313,7 @@ public:
 // using NodeWithInputs = std::pair<std::shared_ptr<ov::Node>, std::vector<bool>>;
 using NodePtr = std::shared_ptr<ov::Node>;
 
-static void recurse_down_dfs(const NodePtr& node, std::unordered_set<NodePtr>& path_nodes, const std::vector<std::string>& end_nodes) {
+static void recurse_down_dfs(const NodePtr& node, std::unordered_set<NodePtr>& path_nodes, const std::vector<std::string>& end_nodes, std::ostream& os) {
     if (path_nodes.find(node) != path_nodes.end()) { // the node has already been processed
         return;
     }
@@ -269,19 +336,21 @@ static void recurse_down_dfs(const NodePtr& node, std::unordered_set<NodePtr>& p
 
     for (auto& output : node->outputs()) {
         for (auto& input : output.get_target_inputs()) {
-            recurse_down_dfs(input.get_node()->shared_from_this(), path_nodes, end_nodes);
+            recurse_down_dfs(input.get_node()->shared_from_this(), path_nodes, end_nodes, os);
         }
     }
 }
 
+// TODO: if empty start_nodes & end_nodes dump the entire graph
 static void dump_partially(std::ostream& os, const std::shared_ptr<ov::Model>& model, const std::vector<std::string>& start_nodes, const std::vector<std::string>& end_nodes) {
     std::unordered_set<NodePtr> path_nodes;
 
     std::cout << "----" << std::endl;
+    // Find nodes that we would include in our paths and write them to path_nodes
     for (auto& op : model->get_ordered_ops()) {
         for (auto& start_node_name : start_nodes) {
             if (op->get_name() == start_node_name) { // found a node with a given name, we can start processing it
-                recurse_down_dfs(op, path_nodes, end_nodes);
+                recurse_down_dfs(op, path_nodes, end_nodes, os);
             }
         }
     }
@@ -290,44 +359,60 @@ static void dump_partially(std::ostream& os, const std::shared_ptr<ov::Model>& m
 
     for (auto& op : model->get_ordered_ops()) {
         if (path_nodes.find(op) != path_nodes.end()) {
-            std::vector<std::string> node_inputs_names;
-            for (auto& input : op->input_values()) {
-                std::string input_name = input.get_node_shared_ptr()->get_name();
-                if (printed.find(input.get_node_shared_ptr()) == printed.end()) {
-                    if (path_nodes.find(input.get_node_shared_ptr()) == path_nodes.end()) { // if we haven't found the node in the path list, we have to fake this node as a Parameter
-                        if (!std::dynamic_pointer_cast<ov::op::v0::Constant>(input.get_node_shared_ptr()) && // But if it's a constant or a Parameter we may just reuse them without faking
-                            !std::dynamic_pointer_cast<ov::op::v0::Parameter>(input.get_node_shared_ptr())) {
+            if (auto multi_subgraph = std::dynamic_pointer_cast<op::util::MultiSubGraphOp>(op)) {
+                for (size_t i = 0; i < multi_subgraph->get_internal_subgraphs_size(); ++i) {
+                    os << "// MultiSubGraphOp " << multi_subgraph->get_name() << "[" << i << "]" << std::endl; // TODO: think if the comment is required here
+                    dump_partially(os, multi_subgraph->get_function(i), {}, {});
+                }
+            } else {
+                std::vector<std::string> node_inputs_names;
+
+                // First, process the nodes's inputs
+                for (auto& input : op->input_values()) {
+                    std::string input_name = input.get_node_shared_ptr()->get_name();
+                    if (printed.find(input.get_node_shared_ptr()) == printed.end()) { // it hasn't been printed yet
+                        if (auto const_op = std::dynamic_pointer_cast<ov::op::v0::Constant>(input.get_node_shared_ptr())) { // if it's a Constant, we'll just reuse it without faking (same for Parameter)
+                            auto print_input_node = "auto " + input_name + " = makeConst(" + to_code(input.get_element_type()) + ", " + to_code(input.get_shape()) + ", " + to_code(const_op, true) + ");";
+                            std::cout << print_input_node << std::endl;
+                        } else {
+                            if (!std::dynamic_pointer_cast<ov::op::v0::Parameter>(input.get_node_shared_ptr())) { // if it's not a parameter, add "Fake_" to name
                                 input_name.insert(0, "Fake_");
+                            }
+                            auto print_input_node = "auto " + input_name + " = makeOP<opset1::Parameter>({}, {{\"element_type\", " + to_code(input.get_element_type()) + "}, {\"shape\", " + shape_to_code_as_list(input.get_partial_shape()) + "}});";
+                            std::cout << print_input_node << std::endl;
                         }
                     }
-                    auto print_node = "auto " + input_name + " = makeOP<" + input.get_node_shared_ptr()->get_type_info().get_version() + "::" + std::string(input.get_node_shared_ptr()->get_type_name()) + ">()";
+                    node_inputs_names.push_back(input_name);
+                }
+
+                // Now, process the node
+                if (auto const_op = std::dynamic_pointer_cast<ov::op::v0::Constant>(op)) {
+                    auto print_node = "auto " + op->get_name() + " = makeConst(" + to_code(op->get_element_type()) + ", " + to_code(op->get_shape()) + ", " + to_code(const_op, true) + ");";
+                    std::cout << print_node << std::endl;
+                } else {
+                    auto type = op->get_type_info().get_version() + "::" + std::string(op->get_type_name());
+                    auto print_node = "auto " + op->get_name() + " = makeOP<" + type + ">({";
+                    for (size_t i = 0; i < node_inputs_names.size(); ++i) {
+                        print_node += node_inputs_names[i] + (i == node_inputs_names.size() - 1 ? "}, " : ", ");
+                    }
+                    std::stringstream ss;
+                    OstreamAttributeVisitor osvis(ss);
+                    op->visit_attributes(osvis);
+                    auto str_attr = ss.str();
+                    print_node += "{" + str_attr + "});";
                     std::cout << print_node << std::endl;
                 }
-                node_inputs_names.push_back(input_name);
+
+                printed.insert(op);
+                std::cout << std::endl;
             }
-            auto print_node = "auto " + op->get_name() + " = makeOP<" + op->get_type_info().get_version() + "::" + std::string(op->get_type_name()) + ">(";
-            for (size_t i = 0; i < node_inputs_names.size(); ++i) {
-                print_node += node_inputs_names[i] + (i == node_inputs_names.size() - 1 ? "" : ", ");
-            }
-            print_node += ");";
-            std::cout << print_node << std::endl;
-            printed.insert(op);
-            std::cout << std::endl;
         }
     }
 
     std::cout << "----" << std::endl;
 }
 
-template <typename UNUSED_T = void>
-void dump_cpp_style(std::ostream& os, const std::shared_ptr<ov::Model>& model) {
-    // dump_partially(os, model, {"Reshape_74854"}, {"ScaledDotProductAttention_74890"});
-    // dump_partially(os, model, {"Gather_74838"}, {"ScaledDotProductAttention_74890"});
-    dump_partially(os, model, {"Constant_74836", "Gather_74838", "Reshape_74854", "Add_74878"}, {"ScaledDotProductAttention_74890", "Transpose_74886"});
-}
-
-template <typename UNUSED_T = void>
-void dump_cpp_style_old(std::ostream& os, const std::shared_ptr<ov::Model>& model) {
+static void dump_cpp_style_old(std::ostream& os, const std::shared_ptr<ov::Model>& model) {
     const ov::Model& f = *model;
     std::string prefix = "";
     std::string tag = "";
@@ -464,12 +549,22 @@ void dump_cpp_style_old(std::ostream& os, const std::shared_ptr<ov::Model>& mode
             auto cnt = msubgraph->get_internal_subgraphs_size();
             for (size_t i = 0; i < cnt; i++) {
                 os << "    MultiSubGraphOp " << tag << msubgraph->get_friendly_name() << "[" << i << "]" << std::endl;
-                dump_cpp_style(os, msubgraph->get_function(i));
+                dump_cpp_style_old(os, msubgraph->get_function(i));
             }
         }
     }
     os << prefix << "}\n";
 }
+
+static void dump_cpp_style(std::ostream& os, const std::shared_ptr<ov::Model>& model) {
+    // dump_cpp_style_old(os, model);
+    // dump_partially(os, model, {"Reshape_74854"}, {"ScaledDotProductAttention_74890"});
+    // dump_partially(os, model, {"Gather_74838"}, {"ScaledDotProductAttention_74890"});
+    dump_partially(os, model, {"Constant_74836", "Gather_74838", "Reshape_74854", "Add_74878", "Constant_76608"}, {"ScaledDotProductAttention_74890", "Transpose_74886", "Result_76622"});
+
+    auto Fake_ReadValue_74834 = ov::gen_pattern::makeOP<opset1::Parameter>({}, {{"element_type", ov::element::f32}, {"shape", {ov::PartialShape({1, 2, ov::Dimension::dynamic()})}}});
+}
+
 
 }  // namespace detail
 
