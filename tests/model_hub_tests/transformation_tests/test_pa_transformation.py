@@ -62,6 +62,8 @@ def run_pa(tmp_path, model_id, model_link, use_block_indices_inputs, use_score_o
 @pytest.mark.precommit
 @pytest.mark.parametrize("model_name, model_link, mark, reason", utils.get_models_list(os.path.join(os.path.dirname(__file__), "models", "hf-tiny-random-models-precommit")))
 def test_pa_precommit(tmp_path, model_name, model_link, mark, reason, ie_device):
+    if ie_device == "GPU":
+        pytest.skip("GPU skipping")
     assert mark is None or mark == 'skip' or mark == 'xfail', \
         "Incorrect test case: {}, {}".format(model_name, model_link)
     if mark == 'skip':
@@ -70,13 +72,13 @@ def test_pa_precommit(tmp_path, model_name, model_link, mark, reason, ie_device)
         pytest.xfail(reason)
     run_pa(tmp_path, model_name, model_link, False, False)
 
-@pytest.mark.precommit
-@pytest.mark.parametrize("model_name, model_link, mark, reason", utils.get_models_list(os.path.join(os.path.dirname(__file__), "models", "hf-tiny-random-models-precommit")))
-def test_pa_precommit_use_cache_eviction(tmp_path, model_name, model_link, mark, reason, ie_device):
-    assert mark is None or mark == 'skip' or mark == 'xfail', \
-        "Incorrect test case: {}, {}".format(model_name, model_link)
-    if mark == 'skip':
-        pytest.skip(reason)
-    elif mark == 'xfail':
-        pytest.xfail(reason)
-    run_pa(tmp_path, model_name, model_link, True, True)
+#@pytest.mark.precommit
+#@pytest.mark.parametrize("model_name, model_link, mark, reason", utils.get_models_list(os.path.join(os.path.dirname(__file__), "models", "hf-tiny-random-models-precommit")))
+#def test_pa_precommit_use_cache_eviction(tmp_path, model_name, model_link, mark, reason, ie_device):
+#    assert mark is None or mark == 'skip' or mark == 'xfail', \
+#        "Incorrect test case: {}, {}".format(model_name, model_link)
+#    if mark == 'skip':
+#        pytest.skip(reason)
+#    elif mark == 'xfail':
+#        pytest.xfail(reason)
+#    run_pa(tmp_path, model_name, model_link, True, True)

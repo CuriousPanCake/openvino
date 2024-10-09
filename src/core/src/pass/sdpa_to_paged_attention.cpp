@@ -20,6 +20,8 @@
 
 #include "transformations/print_model.hpp"
 
+#include "openvino/pass/visualize_tree.hpp"
+
 using namespace ov::op;
 
 ov::pass::SDPAToPagedAttention::SDPAToPagedAttention(bool use_block_indices_inputs, bool use_score_outputs)
@@ -105,6 +107,7 @@ bool ov::pass::SDPAToPagedAttention::run_on_model(const std::shared_ptr<ov::Mode
 
     ov::pass::Manager manager("SDPA to PA");
     manager.set_per_pass_validation(false);
+    manager.register_pass<VisualizeTree>("beforeSMP.svg");
     manager.register_pass<PrintModel>("beforeSMP");
     manager.register_pass<StateManagementPattern>(kv_parameters,
                                                   model_remaining_params,
