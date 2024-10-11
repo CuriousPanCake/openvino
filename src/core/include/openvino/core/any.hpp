@@ -556,7 +556,7 @@ class OPENVINO_API Any {
             return static_cast<RuntimeAttribute*>(runtime_attribute.get())->visit_attributes(visitor);
         }
 
-        Impl(const T& runtime_attribute) : runtime_attribute{runtime_attribute} {std::cout << "Impl() constructor" << std::endl;}
+        Impl(const T& runtime_attribute) : runtime_attribute{runtime_attribute} {}
 
         const std::type_info& type_info() const override {
             return typeid(T);
