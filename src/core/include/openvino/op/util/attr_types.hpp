@@ -166,7 +166,7 @@ struct OPENVINO_API AutoBroadcastSpec {
         m_type = type;
         m_axis = (m_type == AutoBroadcastType::PDPD) ? -1 : 0;
     }
-    AutoBroadcastSpec(const char* type) : AutoBroadcastSpec(type_from_string(type)) {}
+    AutoBroadcastSpec(const char* type) : AutoBroadcastSpec(type_from_string(type)) {std::cout << "Creating AutoBroadcastSpec from " << type << std::endl;}
     AutoBroadcastSpec(AutoBroadcastType type, int64_t axis) : m_type(type), m_axis(axis) {}
 
     AutoBroadcastType m_type;  // Implicit broadcasting algorithm

@@ -298,6 +298,7 @@ struct AttrAny {
     AttrAny(long long v) : any(static_cast<int64_t>(v)) {}
     AttrAny(const char* v) : any(v) {}
     AttrAny(const std::string& v) : any(v) {}
+    AttrAny(const ov::op::util::VariableInfo& v) : any(v) {}
 
     // template <typename T, typename std::enable_if<std::is_arithmetic<T>::value>::type = true>
     // AttrAny(const T& v) : any(v) {}
@@ -508,7 +509,12 @@ public:
         if (auto a = ov::as_type<ov::AttributeAdapter<ov::element::Type>>(&adapter)) {
             static_cast<ov::element::Type&>(*a) = any.as<ov::element::Type>();
         } else if (auto a = ov::as_type<ov::AttributeAdapter<ov::PartialShape>>(&adapter)) {
-            a->set(any.as<ov::PartialShape>());
+            // For constucring ov::PartialShape attribute from string like "?,12,?,64"
+            if (any.is<const char*>() | any.is<std::string>()) {
+                a->set(ov::PartialShape(m_attr_map[name].as_string()));
+            } else {
+                a->set(any.as<ov::PartialShape>());
+            }
         } else if (auto a = ov::as_type<ov::AttributeAdapter<ov::Dimension>>(&adapter)) {
             a->set(any.as<ov::Dimension>());
         } else if (auto a = ov::as_type<ov::AttributeAdapter<ov::Shape>>(&adapter)) {
@@ -531,6 +537,8 @@ public:
             a->set(m_attr_map[name].as_vector<int64_t>());
         } else if (auto a = ov::as_type<ov::AttributeAdapter<ov::element::TypeVector>>(&adapter)) {
             a->set(m_attr_map[name].as_T_vector<ov::element::Type>());
+        } else if (auto a = ov::as_type<AttributeAdapter<std::shared_ptr<op::util::Variable>>>(&adapter)) {
+            a->set(std::make_shared<op::util::Variable>(m_attr_map[name].any.as<op::util::VariableInfo>()));
         } else {
             OPENVINO_THROW("unsupported AttributeAdapter for attribute : ", name);
         }

@@ -108,7 +108,10 @@ bool ov::pass::SDPAToPagedAttention::run_on_model(const std::shared_ptr<ov::Mode
     ov::pass::Manager manager("SDPA to PA");
     manager.set_per_pass_validation(false);
     manager.register_pass<VisualizeTree>("beforeSMP.svg");
-    manager.register_pass<PrintModel>("beforeSMP");
+    manager.register_pass<PrintModel>("beforeSMP",
+                                      std::initializer_list<std::string>{"Constant_49314", "Gather_49339", "Add_50153"},
+                                      std::initializer_list<std::string>{"ScaledDotProductAttention_49408", "Result_50157"},
+                                      false);
     manager.register_pass<StateManagementPattern>(kv_parameters,
                                                   model_remaining_params,
                                                   sliding_window,

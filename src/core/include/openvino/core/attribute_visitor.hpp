@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <iostream>
 
 #include "openvino/core/type.hpp"
 
