@@ -327,7 +327,7 @@ static void dump_wrap_type(std::ostream& os,
                     if (printed.find(op->get_input_source_output(i).get_node_shared_ptr()) != printed.end()) {
                         print_node += op->get_input_source_output(i).get_node_shared_ptr()->get_name() + "_pattern";
                     } else {
-                        print_node += "pattern::any_input()";
+                        print_node += "ov::pass::pattern::any_input()";
                     }
 
                     if (i == op->get_input_size() - 1) {
@@ -377,7 +377,7 @@ static void dump_partially(std::ostream& os,
                     std::string input_name = input.get_node_shared_ptr()->get_name();
                     if (printed.find(input.get_node_shared_ptr()) == printed.end()) { // it hasn't been printed yet
                         if (auto const_op = std::dynamic_pointer_cast<ov::op::v0::Constant>(input.get_node_shared_ptr())) { // if it's a Constant, we'll just reuse it without faking (same for Parameter)
-                            auto print_input_node = "auto " + input_name + " = ov::gen_pattern::makeConst(" + to_code(input.get_element_type()) + ", " + to_code(input.get_shape()) + ", " + to_code(const_op, true) + ");";
+                            auto print_input_node = "auto " + input_name + " = ov::gen_pattern::makeConst(" + to_code(input.get_element_type()) + ", ov::Shape(" + to_code(input.get_shape()) + "), " + to_code(const_op, true) + ");";
                             os << print_input_node << std::endl;
                         } else {
                             if (!std::dynamic_pointer_cast<ov::op::v0::Parameter>(input.get_node_shared_ptr())) { // if it's not a parameter, add "Fake_" to name
@@ -392,7 +392,7 @@ static void dump_partially(std::ostream& os,
 
                 // Now, process the node
                 if (auto const_op = std::dynamic_pointer_cast<ov::op::v0::Constant>(op)) {
-                    auto print_node = "auto " + op->get_name() + " = ov::gen_pattern::makeConst(" + to_code(op->get_element_type()) + ", " + to_code(op->get_shape()) + ", " + to_code(const_op, true) + ");";
+                    auto print_node = "auto " + op->get_name() + " = ov::gen_pattern::makeConst(" + to_code(op->get_element_type()) + ", ov::Shape(" + to_code(op->get_shape()) + "), " + to_code(const_op, true) + ");";
                     os << print_node << std::endl;
                 } else {
                     auto type = op->get_type_info().get_version() + "::" + std::string(op->get_type_name());
