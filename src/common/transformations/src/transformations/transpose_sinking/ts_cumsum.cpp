@@ -50,43 +50,52 @@ TSCumSumForward::TSCumSumForward() {
 
 TSCumSumBackward::TSCumSumBackward() {
     MATCHER_SCOPE(TSCumSumBackward);
-    auto main_node_label = wrap_type<ov::op::v0::CumSum>([](const Output<Node>& output) -> bool {
-        return has_static_rank()(output) && CheckTransposeConsumers(output);
-    });
 
-    auto transpose_const_label = wrap_type<ov::op::v0::Constant>();
+    struct callback {
+        ov::pass::MatcherPass& matcher_pass;
 
-    auto transpose_label = wrap_type<ov::op::v1::Transpose>({main_node_label, transpose_const_label},
-                                                            [](const Output<Node>& output) -> bool {
-                                                                return has_static_rank()(output);
-                                                            });
-    matcher_pass_callback matcher_pass_callback = [OV_CAPTURE_CPY_AND_THIS](Matcher& m) {
-        const auto& pattern_to_output = m.get_pattern_value_map();
-        auto transpose_const =
-            as_type_ptr<ov::op::v0::Constant>(pattern_to_output.at(transpose_const_label).get_node_shared_ptr());
-        auto transpose = pattern_to_output.at(transpose_label).get_node_shared_ptr();
-        auto main_node = pattern_to_output.at(main_node_label).get_node_shared_ptr();
+        callback(ov::pass::MatcherPass& mp) : matcher_pass(mp) {}
 
-        if (transformation_callback(main_node)) {
-            return false;
+        std::shared_ptr<ov::Node> main_node_label = wrap_type<ov::op::v0::CumSum>([](const Output<Node>& output) -> bool {
+            return has_static_rank()(output) && CheckTransposeConsumers(output);
+        });
+
+        std::shared_ptr<ov::Node> transpose_const_label = wrap_type<ov::op::v0::Constant>();
+
+        std::shared_ptr<ov::Node> transpose_label = wrap_type<ov::op::v1::Transpose>({main_node_label, transpose_const_label},
+                                                                [](const Output<Node>& output) -> bool {
+                                                                    return has_static_rank()(output);
+                                                                });
+
+        bool operator()(Matcher& m) {
+            const auto& pattern_to_output = m.get_pattern_value_map();
+            auto transpose_const =
+                as_type_ptr<ov::op::v0::Constant>(pattern_to_output.at(transpose_const_label).get_node_shared_ptr());
+            auto transpose = pattern_to_output.at(transpose_label).get_node_shared_ptr();
+            auto main_node = pattern_to_output.at(main_node_label).get_node_shared_ptr();
+
+            if (matcher_pass.transformation_callback(main_node)) {
+                return false;
+            }
+
+            for (auto& new_node : sink_backward::InsertTransposeBeforeNode(main_node,
+                                                                           transpose_const,
+                                                                           /* input_indexes= */ {0})) {
+                matcher_pass.register_new_node(new_node);
+            }
+
+            RemoveTransposeConsumers(main_node);
+            const auto transpose_axis_order = transpose_const->get_axis_vector_val();
+            const auto reversed_transpose_order = ReverseTransposeOrder(transpose_axis_order);
+            auto axis = std::make_shared<ov::op::v0::Constant>(element::i32, Shape{}, 0);
+            auto new_axes = ChangeAxes(main_node->input_value(CUMSUM_AXIS_INPUT_IDX), reversed_transpose_order, axis);
+            main_node->input(CUMSUM_AXIS_INPUT_IDX).replace_source_output(new_axes);
+
+            main_node->validate_and_infer_types();
+            return true;
         }
-
-        for (auto& new_node : sink_backward::InsertTransposeBeforeNode(main_node,
-                                                                       transpose_const,
-                                                                       /* input_indexes= */ {0})) {
-            register_new_node(new_node);
-        }
-
-        RemoveTransposeConsumers(main_node);
-        const auto transpose_axis_order = transpose_const->get_axis_vector_val();
-        const auto reversed_transpose_order = ReverseTransposeOrder(transpose_axis_order);
-        auto axis = std::make_shared<ov::op::v0::Constant>(element::i32, Shape{}, 0);
-        auto new_axes = ChangeAxes(main_node->input_value(CUMSUM_AXIS_INPUT_IDX), reversed_transpose_order, axis);
-        main_node->input(CUMSUM_AXIS_INPUT_IDX).replace_source_output(new_axes);
-
-        main_node->validate_and_infer_types();
-        return true;
-    };
-    auto m = std::make_shared<Matcher>(transpose_label, matcher_name);
-    register_matcher(m, matcher_pass_callback);
+    } cb(*this);
+    
+    auto m = std::make_shared<Matcher>(cb.transpose_label, matcher_name);
+    register_matcher(m, cb);
 }
