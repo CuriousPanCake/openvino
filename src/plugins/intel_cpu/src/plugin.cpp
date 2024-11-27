@@ -21,6 +21,9 @@
 #include "weights_cache.hpp"
 #include "openvino/op/paged_attention.hpp"
 
+#include "openvino/pass/manager.hpp"
+#include "openvino/pass/visualize_tree.hpp"
+
 #if defined(__linux__)
 #    include <signal.h>
 #    include <sys/auxv.h>
@@ -251,6 +254,9 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
 
     Transformations transformations(cloned_model, conf);
 
+    ov::pass::Manager manager;
+    manager.register_pass<ov::pass::VisualizeTree>("before_UpToLpt.svg");
+    manager.run_passes(cloned_model);
     transformations.UpToLpt();
 
     calculate_streams(conf, cloned_model);
@@ -297,6 +303,11 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
             denormals_as_zero(false);
         }
     }
+
+    ov::pass::Manager my_manager;
+    my_manager.register_pass<ov::pass::VisualizeTree>("model_after_all_good.svg");
+    my_manager.run_passes(cloned_model);
+
     return std::make_shared<CompiledModel>(cloned_model, shared_from_this(), conf, false);
 }
 

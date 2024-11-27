@@ -729,6 +729,9 @@ std::shared_ptr<Node> NetworkHelper::foldFakeQuantize(
     const std::shared_ptr<ov::opset1::FakeQuantize>& fq,
     const bool roundValuesArg,
     const bool roundValuesWasSet) {
+    if (fq->get_friendly_name() == "input.360_QuantizeLinear") {
+        std::cout << "input.360_QuantizeLinear fq: " << fq << std::endl;
+    }
     // Corner case
     //    y = FakeQuantize(x, inputLow, inputHigh, outputLow, outputHigh)
     // given:
@@ -744,6 +747,9 @@ std::shared_ptr<Node> NetworkHelper::foldFakeQuantize(
             ov::as_type_ptr<ov::opset1::Constant>(fq->get_input_node_shared_ptr(4))->cast_vector<float>();
 
         if (outputLowValues == outputHighValues) {
+            if (fq->get_friendly_name() == "input.360_QuantizeLinear") {
+                std::cout << "input.360_QuantizeLinear: the corner case" << std::endl;
+            }
             const auto data_shape_node = fold<ov::opset1::ShapeOf>(fq->input_value(0));
             const auto cvt_output_low = foldConvert(fq->input_value(3), fq->get_output_element_type(0));
             return fold<ov::opset1::Broadcast>(cvt_output_low, data_shape_node);
@@ -755,11 +761,21 @@ std::shared_ptr<Node> NetworkHelper::foldFakeQuantize(
         const auto& original_et = fq->get_output_element_type(0);
         const bool roundValues = roundValuesWasSet ? roundValuesArg : original_et.is_integral();
         if (roundValues) {
+            if (fq->get_friendly_name() == "input.360_QuantizeLinear") {
+                std::cout << "input.360_QuantizeLinear: roundValues" << std::endl;
+            }
             subgraph = std::make_shared<ov::opset6::Round>(subgraph, ov::opset6::Round::RoundMode::HALF_TO_EVEN);
+        }
+
+        if (fq->get_friendly_name() == "input.360_QuantizeLinear") {
+            std::cout << "input.360_QuantizeLinear subgraph: " << subgraph << std::endl;
         }
 
         const auto result = ov::util::get_constant_from_source(subgraph);
         if (result != nullptr) {
+            if (fq->get_friendly_name() == "input.360_QuantizeLinear") {
+                std::cout << "input.360_QuantizeLinear: " << result->get_friendly_name() << std::endl;
+            }
             return foldConvert(result, original_et);
         }
     }
@@ -1769,11 +1785,22 @@ std::shared_ptr<Node> NetworkHelper::toScalarIfPossible(std::shared_ptr<Node> no
 }
 
 std::shared_ptr<Node> foldConvert(const Output<Node>& node, const element::Type targetPrecision) {
+    if (node.get_node_shared_ptr()->get_friendly_name() == "Constant_19169") {
+        auto casted = std::dynamic_pointer_cast<ov::opset1::Constant>(node.get_node_shared_ptr());
+        std::cout << "still processing input.360_QuantizeLinear (Constant_19169) (43) " << node.get_partial_shape() << std::endl;
+    }
     if (ov::is_type<ov::opset1::Constant>(node.get_node_shared_ptr()) && (node.get_element_type() == targetPrecision)) {
         return node.get_node_shared_ptr();
     }
 
-    return fold<ov::opset1::Convert>(node, targetPrecision);
+    auto fold_var = fold<ov::opset1::Convert>(node, targetPrecision);
+
+    if (node.get_node_shared_ptr()->get_friendly_name() == "Constant_19169") {
+        std::cout << "HERE" << std::endl;
+        std::cout << fold_var << std::endl;
+    }
+
+    return fold_var;
 }
 
 bool NetworkHelper::checkZeroPoint(const std::shared_ptr<Node>& node, const DataPrecision& dataPrecision) {

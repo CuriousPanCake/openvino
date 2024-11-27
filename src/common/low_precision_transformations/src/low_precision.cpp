@@ -89,6 +89,8 @@
 #include "low_precision/fuse_subtract_to_fake_quantize.hpp"
 #include "low_precision/multiply_to_group_convolution.hpp"
 
+#include "openvino/pass/visualize_tree.hpp"
+
 ov::pass::low_precision::LowPrecision::LowPrecision(
     const std::vector<PrecisionsRestriction>& precisionRestrictions,
     const std::vector<QuantizationGranularityRestriction>& quantizationRestrictions,
@@ -294,8 +296,11 @@ bool ov::pass::low_precision::LowPrecision::run_on_model(const std::shared_ptr<o
                 params,
                 PrecisionsRestriction::getPrecisionsByOperationType<opset1::GroupConvolution>(precisionRestrictions))
 
+    REGISTER_PASS(manager, ov::pass::VisualizeTree, "before_FoldFakeQuantizeTransformation.svg")
     REGISTER_PASS(manager, FoldFakeQuantizeTransformation, params)
+    REGISTER_PASS(manager, ov::pass::VisualizeTree, "after_FoldFakeQuantizeTransformation_but_this.svg")
     REGISTER_PASS(manager, ConstantFolding)
+    REGISTER_PASS(manager, ov::pass::VisualizeTree, "after_ConstantFolding.svg")
 
     manager.run_passes(f);
     return false;

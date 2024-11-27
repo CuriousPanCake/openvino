@@ -23,6 +23,11 @@ FoldFakeQuantizeTransformation::FoldFakeQuantizeTransformation(const Params& par
 
     ov::graph_rewrite_callback callback = [this](pattern::Matcher& m) {
         auto op = m.get_match_root();
+
+        if (op->get_friendly_name() == "input.360_QuantizeLinear") {
+            std::cout << "Working on input.360_QuantizeLinear op: " << op << std::endl;
+            return false;
+        }
         if (transformation_callback(op)) {
             return false;
         }
@@ -39,15 +44,28 @@ bool FoldFakeQuantizeTransformation::transform(TransformationContext& context, o
         return false;
     }
 
+    if (fakeQuantize->get_friendly_name() == "input.360_QuantizeLinear") {
+        std::cout << "Working on input.360_QuantizeLinear" << std::endl;
+    }
+
     if (!canBeTransformed(context, fakeQuantize)) {
+        if (fakeQuantize->get_friendly_name() == "input.360_QuantizeLinear") {
+            std::cout << "input.360_QuantizeLinear: can't be transformed return " << std::endl;
+        }
         return false;
     }
 
     const auto constantShape = fakeQuantize->input(1).get_partial_shape();
     if (constantShape.is_dynamic()) {
+        if (fakeQuantize->get_friendly_name() == "input.360_QuantizeLinear") {
+            std::cout << "input.360_QuantizeLinear: is dynamic() return " << std::endl;
+        }
         return false;
     }
 
+    if (fakeQuantize->get_friendly_name() == "input.360_QuantizeLinear") {
+        std::cout << "input.360_QuantizeLinear: just before " << fakeQuantize << std::endl;
+    }
     const auto resultConstant = NetworkHelper::fold_fake_quantize(fakeQuantize, false);
     if (ov::is_type<ov::opset1::Constant>(resultConstant)) {
         replace_node(fakeQuantize, resultConstant);

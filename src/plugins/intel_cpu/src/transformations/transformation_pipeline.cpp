@@ -173,6 +173,7 @@
 #include "cpu/x64/cpu_isa_traits.hpp"
 #endif
 #include "openvino/core/validation_util.hpp"
+#include "openvino/pass/visualize_tree.hpp"
 
 namespace ov {
 namespace intel_cpu {
@@ -320,6 +321,10 @@ void Transformations::CpuSpecificOpSet(void) {
     CPU_DEBUG_CAP_TRANSFORMATION_SCOPE(this, Specific);
 
     ConvertToCPUSpecificOpset(model);
+
+    // ov::pass::Manager manager;
+    // manager.register_pass<ov::pass::VisualizeTree>("after_all.svg");
+    // manager.run_passes(model);
 }
 
 void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecisions) {
@@ -695,12 +700,18 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::KeepConstAndDecompression);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConstantFolding);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::LoraSubgraphFusion);
+    manager.register_pass<ov::pass::VisualizeTree>("after_LoraSubgraphFusion.svg");
 
     manager.run_passes(model);
+
+    ov::pass::Manager my_manager;
+    my_manager.register_pass<ov::pass::VisualizeTree>("end_pre_LPT.svg");
+    my_manager.run_passes(model);
 }
 
 void Transformations::Lpt(const std::vector<ov::element::Type>& defaultPrecisions) {
     CPU_DEBUG_CAP_TRANSFORMATION_SCOPE(this, Lpt);
+
 
     using namespace ov::pass::low_precision;
     CPU_LPT_SCOPE(LowPrecisionTransformations_Part4);
@@ -759,15 +770,18 @@ void Transformations::Lpt(const std::vector<ov::element::Type>& defaultPrecision
         });
 
     ov::pass::Manager lptManager("CPU:LPT");
+    lptManager.register_pass<ov::pass::VisualizeTree>("lptManager_start.svg");
     CPU_REGISTER_PASS_COMMON(lptManager, LowPrecision,
         supportedPrecisions,
         quantizationRestrictions,
         LayerTransformation::Params(true, ov::element::f32, defaultPrecisions));
+    lptManager.register_pass<ov::pass::VisualizeTree>("after_LowPrecision.svg");
 
     CPU_SET_CALLBACK_COMMON(lptManager, [](const_node_ptr& node) -> bool {
         return ov::is_type<ov::opset1::Multiply>(node) &&
                !MultiplyToGroupConvolutionTransformation::canBeTransformedToGroupConvolution(node);
     }, MarkupPrecisions);
+    lptManager.register_pass<ov::pass::VisualizeTree>("after_MarkupPrecisions.svg");
     CPU_SET_CALLBACK_COMMON(lptManager, [&defaultPrecisions](const_node_ptr& node) -> bool {
         return LayerTransformation::isAsymmetricQuantization(node, defaultPrecisions) ||
                WeightableLayerTransformation::isAsymmetricOnWeights(node, defaultPrecisions);
@@ -800,6 +814,8 @@ void Transformations::Lpt(const std::vector<ov::element::Type>& defaultPrecision
 
     CPU_DISABLE_PASS_ARM(lptManager, RecurrentCellTransformation);
     CPU_DISABLE_PASS_COMMON(lptManager, MultiplyToGroupConvolutionTransformation);
+
+    // lptManager.register_pass<ov::pass::VisualizeTree>("end_of_LPT.svg");
 
     lptManager.run_passes(model);
 }
