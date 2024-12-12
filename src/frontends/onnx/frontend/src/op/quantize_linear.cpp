@@ -117,6 +117,23 @@ std::tuple<std::shared_ptr<ov::Node>, std::shared_ptr<ov::Node>> get_input_bands
 std::shared_ptr<ov::Node> make_fake_quantize(const ov::Output<ov::Node>& y_scale,
                                              const ov::Output<ov::Node>& y_zero_point,
                                              const ov::Output<ov::Node>& data) {
+
+    // if (auto casted_const = std::dynamic_pointer_cast<v0::Constant>(y_scale.get_node_shared_ptr())) {
+    //     std::cout << "y_scale: " << std::endl;
+    //     std::cout << casted_const << std::endl;
+    //     for (auto i : casted_const->cast_vector<float>()) {
+    //         std::cout << i << " " << std::endl;
+    //     }
+    //     if (casted_const->cast_vector<float>().size() == 1 && casted_const->cast_vector<float>()[0] == 0) {
+    //         casted_const->fill_data(element::f32, 1.0);
+    //     }
+
+    //     for (auto i : casted_const->cast_vector<float>()) {
+    //         std::cout << i << " " << std::endl;
+    //     }
+    // }
+
+
     const ov::element::Type& destination_type = y_zero_point.get_element_type();
     const ov::element::Type& data_type = data.get_element_type();
 

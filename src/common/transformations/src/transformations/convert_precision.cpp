@@ -23,6 +23,8 @@
 #include "transformations/rt_info/original_precision_attribute.hpp"
 #include "transformations/utils/utils.hpp"
 
+#include "openvino/pass/visualize_tree.hpp"
+
 using namespace ov;
 
 bool fuse_type_to_parameter(const std::shared_ptr<ov::Node>& node,
@@ -210,6 +212,15 @@ bool convert_function_precision(const std::shared_ptr<Model>& f,
                                 bool store_original_precision_as_rt_attribute) {
     bool is_output_precision_changed = false;
 
+    std::cout << "START OF convert_function_precision()" << std::endl;
+    for (auto op : f->get_ordered_ops()) {
+        if (std::dynamic_pointer_cast<ov::op::v1::Power>(op)) {
+            std::cout << op << std::endl;
+            ov::pass::VisualizeTree("subgraph_power_is_present.svg").run_on_model(f);
+        }
+    }
+    std::cout << "END OF convert_function_precision()" << std::endl;
+
     ov::element::TypeVector orig_result_types;
     if (!convert_input_output_precision) {
         const auto& results = f->get_results();
@@ -226,17 +237,20 @@ bool convert_function_precision(const std::shared_ptr<Model>& f,
     for (auto& node : ops) {
         if (skip_precision_sensitive && fp16_compression_is_disabled(node) && has_fp16_compression)
             continue;
+        std::cout << "1 " << node << std::endl;
         is_changed = convert_node_input_precision(node, precisions, type_to_extend) || is_changed;
     }
 
     for (const auto& param : f->get_parameters()) {
         if (skip_precision_sensitive && fp16_compression_is_disabled(param) && has_fp16_compression)
             continue;
+        std::cout << "2 " << param << std::endl;
         is_changed = fuse_type_to_parameter(param, precisions, convert_input_output_precision) || is_changed;
     }
 
     if (convert_input_output_precision || store_original_precision_as_rt_attribute) {
         for (const auto& variable : f->get_variables()) {
+            std::cout << "3 " << variable << std::endl;
             is_changed = fuse_type_to_variable(variable, precisions) || is_changed;
         }
     }
@@ -264,8 +278,11 @@ bool convert_function_precision(const std::shared_ptr<Model>& f,
             continue;
         // Recursively apply transformation for sub-graph based operations
         if (auto sub_graph_node = std::dynamic_pointer_cast<op::util::MultiSubGraphOp>(node)) {
+            std::cout << "\nTHERE'S a MULTI SUB GRAPH somewhere" << std::endl;
+            std::cout << node << std::endl;
             size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
             for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                std::cout << "\n\n---ENTERING MULTISUBGRAPH" << std::endl;
                 is_changed = convert_function_precision(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)),
                                                         type_to_fuse,
                                                         type_to_extend,
@@ -278,6 +295,7 @@ bool convert_function_precision(const std::shared_ptr<Model>& f,
                                                         true,
                                                         store_original_precision_as_rt_attribute) ||
                              is_changed;
+                std::cout << "---EXITING MULTISUBGRAPH\n\n" << std::endl;
             }
         }
         // if convert_input_output_precision flag is set, we don't need to preserve the original precision
@@ -285,9 +303,11 @@ bool convert_function_precision(const std::shared_ptr<Model>& f,
         // Otherwise, we have insert Convert ops to inputs/outputs of ReadValue/Assign
         if ((as_type_ptr<op::util::AssignBase>(node) || as_type_ptr<op::util::ReadValueBase>(node)) &&
             convert_input_output_precision) {
+            std::cout << "4 " << node << std::endl;
             node->revalidate_and_infer_types();
             continue;
         }
+        std::cout << "5 " << node << std::endl;
         is_output_precision_changed = convert_node_output_precision(node,
                                                                     precisions,
                                                                     type_to_fuse,
@@ -396,6 +416,14 @@ precisions_set_t find_all_used_precisions(const std::shared_ptr<ov::Model>& fn) 
 }  // namespace
 
 bool ov::pass::ConvertPrecision::run_on_model(const std::shared_ptr<ov::Model>& f) {
+    std::cout << "ConvertPrecision::run_on_model()" << std::endl;
+    std::cout << "VERY START" << std::endl;
+    for (auto op : f->get_ordered_ops()) {
+        if (std::dynamic_pointer_cast<ov::op::v1::Power>(op)) {
+            std::cout << op << std::endl;
+        }
+    }
+    std::cout << "VERY START END" << std::endl;
     const auto used_precisions_set = find_all_used_precisions(f);
     precisions_map used_precisions;
     for (const auto& p : used_precisions_set) {
@@ -416,6 +444,13 @@ bool ov::pass::ConvertPrecision::run_on_model(const std::shared_ptr<ov::Model>& 
         manager.register_pass<pass::AlignMixedFP32FP16Types>();
         manager.run_passes(f);
     }
+    std::cout << "AFTER BLOCK" << std::endl;
+    for (auto op : f->get_ordered_ops()) {
+        if (std::dynamic_pointer_cast<ov::op::v1::Power>(op)) {
+            std::cout << op << std::endl;
+        }
+    }
+    std::cout << "AFTER BLOCK END" << std::endl;
 
     type_to_fuse_map type_to_fuse{
         {ov::op::v0::Convert::get_type_info_static(), fuse_type_to_convert},
@@ -480,6 +515,15 @@ bool ov::pass::ConvertPrecision::run_on_model(const std::shared_ptr<ov::Model>& 
         {ov::op::v1::Select::get_type_info_static(), extend_select_type},
         {ov::op::v1::Reverse::get_type_info_static(), extend_reverse_type},
     };
+
+    std::cout << "BEFOREHAND" << std::endl;
+    for (auto op : f->get_ordered_ops()) {
+        if (std::dynamic_pointer_cast<ov::op::v1::Power>(op)) {
+            // ov::pass::VisualizeTree("power_present.svg").run_on_model(f);
+            std::cout << op << std::endl;
+        }
+    }
+    std::cout << "BEFOREHAND END" << std::endl;
 
     bool is_changed = convert_precision(*this,
                                         f,

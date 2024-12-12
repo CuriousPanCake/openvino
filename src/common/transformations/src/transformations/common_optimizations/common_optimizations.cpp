@@ -123,6 +123,7 @@
 #include "transformations/symbolic_transformations/symbolic_optimizations.hpp"
 
 bool ov::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ov::Model>& f) {
+    std::cout << "CommonOptimizations::run_on_model()" << std::endl;
     RUN_ON_FUNCTION_SCOPE(CommonOptimizations);
     ov::pass::Manager manager(get_pass_config(), "CommonOptimizations");
     manager.set_per_pass_validation(false);

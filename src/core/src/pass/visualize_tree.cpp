@@ -561,11 +561,16 @@ std::string ov::pass::VisualizeTree::get_attributes(std::shared_ptr<Node> node) 
         std::stringstream label;
         label << "label=\"" << get_node_name(node);
 
-        static const bool nvtos = ov::util::getenv_bool("OV_VISUALIZE_TREE_OUTPUT_SHAPES");
-        static const bool nvtot = ov::util::getenv_bool("OV_VISUALIZE_TREE_OUTPUT_TYPES");
-        static const bool nvtio = ov::util::getenv_bool("OV_VISUALIZE_TREE_IO");
-        static const bool nvtrti = ov::util::getenv_bool("OV_VISUALIZE_TREE_RUNTIME_INFO");
-        static const bool ovpvl = ov::util::getenv_bool("OV_VISUALIZE_PARTIAL_VALUES_AND_LABELS");
+        // static const bool nvtos = ov::util::getenv_bool("OV_VISUALIZE_TREE_OUTPUT_SHAPES");
+        // static const bool nvtot = ov::util::getenv_bool("OV_VISUALIZE_TREE_OUTPUT_TYPES");
+        // static const bool nvtio = ov::util::getenv_bool("OV_VISUALIZE_TREE_IO");
+        // static const bool nvtrti = ov::util::getenv_bool("OV_VISUALIZE_TREE_RUNTIME_INFO");
+        // static const bool ovpvl = ov::util::getenv_bool("OV_VISUALIZE_PARTIAL_VALUES_AND_LABELS");
+        static const bool nvtos = true;
+        static const bool nvtot = true;
+        static const bool nvtio = true;
+        static const bool nvtrti = true;
+        static const bool ovpvl = true;
 
         if (nvtos || nvtot || nvtio) {
             if (nvtio) {
@@ -618,7 +623,8 @@ std::string ov::pass::VisualizeTree::get_attributes(std::shared_ptr<Node> node) 
 }
 
 std::string ov::pass::VisualizeTree::get_node_name(std::shared_ptr<Node> node) {
-    static const bool nvtmn = ov::util::getenv_bool("OV_VISUALIZE_TREE_MEMBERS_NAME");
+    // static const bool nvtmn = ov::util::getenv_bool("OV_VISUALIZE_TREE_MEMBERS_NAME");
+    static const bool nvtmn = true;
     std::string rc = (nvtmn ? std::string("friendly_name: ") : "") + node->get_friendly_name();
     if (node->get_friendly_name() != node->get_name()) {
         rc += "\\n" + (nvtmn ? std::string("name: ") : "") + node->get_name();
@@ -627,7 +633,8 @@ std::string ov::pass::VisualizeTree::get_node_name(std::shared_ptr<Node> node) {
     rc += "\\n" + (nvtmn ? std::string("type_name: ") : "") + std::string(type_info.version_id) +
           "::" + std::string(type_info.name);
 
-    static const bool nvttn = ov::util::getenv_bool("OV_VISUALIZE_TREE_TENSORS_NAME");
+    // static const bool nvttn = ov::util::getenv_bool("OV_VISUALIZE_TREE_TENSORS_NAME");
+    static const bool nvttn = true;
     if (nvttn) {
         auto to_string = [](const std::unordered_set<std::string>& names) {
             std::stringstream ss;
@@ -665,7 +672,8 @@ std::string ov::pass::VisualizeTree::get_node_name(std::shared_ptr<Node> node) {
         }
     }
 
-    static const bool nvtrti = ov::util::getenv_bool("OV_VISUALIZE_TREE_RUNTIME_INFO");
+    // static const bool nvtrti = ov::util::getenv_bool("OV_VISUALIZE_TREE_RUNTIME_INFO");
+    static const bool nvtrti = true;
     if (nvtrti) {
         const auto& rt = node->get_rt_info();
         if (!rt.empty()) {
