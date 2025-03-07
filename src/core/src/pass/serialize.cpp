@@ -992,6 +992,7 @@ void ngfunction_2_ir(pugi::xml_node& netXml,
     }
 
     for (const auto& n : sorted_ops) {
+        std::cout << n->get_friendly_name() << std::endl;
         ov::Node* node = n.get();
         const std::string& node_type_name{node->get_type_name()};
 

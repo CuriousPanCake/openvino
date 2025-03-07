@@ -18,6 +18,8 @@
 #include "transformations/sdpa_to_paged_attention/total_sequence_length_pattern.hpp"
 #include "transformations/utils/utils.hpp"
 
+#include "openvino/pass/visualize_tree.hpp"
+
 using namespace ov::op;
 
 ov::pass::SDPAToPagedAttention::SDPAToPagedAttention(bool use_per_layer_block_indices_inputs,
@@ -38,6 +40,8 @@ static std::shared_ptr<v0::Parameter> setName(std::shared_ptr<v0::Parameter> nod
 
 bool ov::pass::SDPAToPagedAttention::run_on_model(const std::shared_ptr<ov::Model>& model) {
     RUN_ON_MODEL_SCOPE(SDPAToPagedAttention);
+    std::cout << "applying SDPA2PA" << std::endl;
+    // ov::pass::VisualizeTree("phi_before_transformation.svg").run_on_model(model);
 
     OPENVINO_ASSERT(ov::op::util::has_op_with_type<ov::op::v13::ScaledDotProductAttention>(model),
                     "No ScaledDotProductAttention operation observed in the graph, cannot perform "

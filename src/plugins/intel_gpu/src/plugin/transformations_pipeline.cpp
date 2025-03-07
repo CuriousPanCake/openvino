@@ -327,6 +327,84 @@ bool TransformationsPipeline::fuse_type_to_convert(const std::shared_ptr<ov::Nod
     return true;
 }
 
+class PrintPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PrintPass");
+    PrintPass(const std::string& content = "") : m_content(content) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        static bool can_print = false;
+        static int counter = 0;
+        bool body_to_print = required_body(model);
+        if (can_print && body_to_print)
+            std::cout << "----" << m_content << std::endl;
+        for (auto& op : model->get_ordered_ops()) {
+            // if (can_print && body_to_print)
+                // std::cout << op->get_friendly_name()<< std::endl;
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                can_print = true;
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                        can_print = true;
+                        run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                        can_print = false;
+                }
+            }
+        }
+        if (can_print && body_to_print) {
+            std::cout << "----" << std::endl << std::endl;
+            ov::pass::VisualizeTree("print_pass" + std::to_string(counter++) + ".svg").run_on_model(model);
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_content;
+};
+
+class PresentPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PresentPass");
+    PresentPass(const std::string& name) : m_name(name) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        bool body_to_print = required_body(model);
+        for (auto& op : model->get_ordered_ops()) {
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                    run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                }
+            }
+            if (body_to_print) {
+                if (op->get_friendly_name() == m_name) {
+                    std::cout << "PRESENT: " << op << std::endl;
+                }
+            }
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_name;
+};
+
 void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
     OV_ITT_SCOPED_TASK(itt::domains::intel_gpu_plugin, "TransformationsPipeline::apply");
     using const_node_ptr = const std::shared_ptr<const ov::Node>;
@@ -450,13 +528,17 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         const bool convert_input_output_precision = false;
         const bool store_original_precision_as_rt_attribute = true;
 
+        // manager.register_pass<PrintPass>("!!! BEFORE ConvertPrecision one");
         manager.register_pass<ov::pass::ConvertPrecision>(fp_convert_precision_map,
                                                           empty_fuse_map,
                                                           keep_precision_sensitive_in_fp32_1,
                                                           convert_input_output_precision,
                                                           store_original_precision_as_rt_attribute);
+        // manager.register_pass<PrintPass>("!!! AFTER ConvertPrecision one");
 
+        //still good(?) here
         manager.register_pass<ov::pass::CommonOptimizations>();
+        //already [..100]
 
         pass_config->set_callback<ov::pass::ScaledDotProductAttentionDecomposition>([&](const std::shared_ptr<const ov::Node> node){
             if (!config.get_enable_sdpa_optimization())
@@ -504,6 +586,7 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
             return true;
         });
 
+        //already [..100]
         manager.register_pass<ov::pass::WrapInterpolateIntoTransposes>();
         manager.register_pass<ov::pass::TransposeSinking>();
 
@@ -572,6 +655,7 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
                     return true;
                 });
 
+        //already [..100]
         manager.register_pass<ConvertShapeOf1To3>();
         manager.register_pass<ov::pass::ConvertNMS1ToNMS9>();
         manager.register_pass<ov::pass::ConvertNMS3ToNMS9>();
@@ -604,10 +688,16 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
 
         // To convert to f16 input to boolean which is converted to u8, add abs + ceiling + clamp before convert.
         type_to_fuse_map type_to_fuse = {{ov::opset10::Convert::get_type_info_static(), fuse_type_to_convert}};
+        // manager.register_pass<PrintPass>("!!! BEFORE ConvertPrecision two");
+        // manager.register_pass<PresentPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
         manager.register_pass<ov::pass::ConvertPrecision>(int_convert_precision_map,
                                                           type_to_fuse,
                                                           keep_precision_sensitive_in_fp32_2,
-                                                          convert_input_output_precision);
+                                                          convert_input_output_precision,
+                                                          false,
+                                                          true);
+        // manager.register_pass<PresentPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
+        // manager.register_pass<PrintPass>("!!! AFTER ConvertPrecision two");
 
         pass_config->disable<ov::pass::EyeDecomposition>();
 

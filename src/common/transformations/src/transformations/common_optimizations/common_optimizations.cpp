@@ -122,6 +122,52 @@
 #include "transformations/op_conversions/unique_decomposition.hpp"
 #include "transformations/symbolic_transformations/symbolic_optimizations.hpp"
 
+#include "openvino/op/util/multi_subgraph_base.hpp"
+#include "openvino/pass/visualize_tree.hpp"
+
+class PrintPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PrintPass");
+    PrintPass(const std::string& content = "") : m_content(content) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        static bool can_print = false;
+        static int counter = 0;
+        bool body_to_print = required_body(model);
+        if (can_print && body_to_print)
+            std::cout << "----" << m_content << std::endl;
+        for (auto& op : model->get_ordered_ops()) {
+            if (can_print && body_to_print)
+                // std::cout << op->get_friendly_name()<< std::endl;
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                can_print = true;
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                        can_print = true;
+                        run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                        can_print = false;
+                }
+            }
+        }
+        if (can_print && body_to_print) {
+            std::cout << "----" << std::endl << std::endl;
+            ov::pass::VisualizeTree("print_pass" + std::to_string(counter++) + ".svg").run_on_model(model);
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_content;
+};
+
 bool ov::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ov::Model>& f) {
     RUN_ON_FUNCTION_SCOPE(CommonOptimizations);
     ov::pass::Manager manager(get_pass_config(), "CommonOptimizations");
@@ -134,7 +180,9 @@ bool ov::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ov::Model
     REGISTER_PASS(manager, SliceToStridedSlice, true)
     // Disable low_precision_enabled as all plugins handle low-precision sub-graph manually
     // before CommonOptimization pipeline execution
+    //good (?)
     REGISTER_PASS(manager, MOCTransformations, true, false)
+    //already [..100]
 
     // Enabling conversion of FP16 IR to legacy representation, each plugin have to disable it
     // after support for FP16 IR is implemented
@@ -154,6 +202,7 @@ bool ov::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ov::Model
     manager.register_pass<ConcatReduceFusion>();
     REGISTER_DISABLED_PASS(manager, ConvertPadToGroupConvolution)
     REGISTER_DISABLED_PASS(manager, ConvertInterpolate1ToInterpolate4)
+    //already [..100]
 
     auto decomp = manager.register_pass<GraphRewrite>();
     ADD_MATCHER(decomp, ScaledDotProductAttentionDecomposition)
@@ -189,6 +238,7 @@ bool ov::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ov::Model
     decomp->set_name("ov::pass::CommonDecompositions");
 
     // CF is required after all decompositions
+    //already [..100]
     REGISTER_PASS(manager, ConstantFolding)
 
     // LinOpSequenceFusion must be executed after all decompositions

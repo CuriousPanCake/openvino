@@ -96,6 +96,53 @@
 #include "transformations/smart_reshape/reshape_sinking.hpp"
 #include "transformations/symbolic_transformations/symbolic_optimizations.hpp"
 
+#include "openvino/op/util/multi_subgraph_base.hpp"
+#include "openvino/pass/visualize_tree.hpp"
+
+class PrintPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PrintPass");
+    PrintPass(const std::string& content = "") : m_content(content) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        static bool can_print = false;
+        static int counter = 0;
+        bool body_to_print = required_body(model);
+        if (can_print && body_to_print)
+            std::cout << "----" << m_content << std::endl;
+        for (auto& op : model->get_ordered_ops()) {
+            if (can_print && body_to_print)
+                // std::cout << op->get_friendly_name()<< std::endl;
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                can_print = true;
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                        can_print = true;
+                        run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                        can_print = false;
+                }
+            }
+        }
+        if (can_print && body_to_print) {
+            std::cout << "----" << std::endl << std::endl;
+            ov::pass::VisualizeTree("print_pass" + std::to_string(counter++) + ".svg").run_on_model(model);
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_content;
+};
+
+
 static ov::PartialShape prepare_dynamic_shape(const ov::PartialShape& shape) {
     auto new_shape = ov::PartialShape::dynamic(shape.rank());
     if (shape.rank().is_static())
@@ -199,6 +246,7 @@ bool ov::pass::MOCTransformations::run_on_model(const std::shared_ptr<ov::Model>
     REGISTER_PASS(manager, SequenceFusion)
 
     REGISTER_PASS(manager, ConcatToBroadcast);
+    // good(?)
 
     auto transpose_sinking = manager.register_pass<ov::pass::GraphRewrite>();
     ADD_MATCHER(transpose_sinking, TransposeSinking)
@@ -215,7 +263,11 @@ bool ov::pass::MOCTransformations::run_on_model(const std::shared_ptr<ov::Model>
     ADD_MATCHER(eliminations, SelectWithOneValueCondition)
     eliminations->set_name("ov::pass::CommonEliminations");
 
+    //good
+    REGISTER_PASS(manager, PrintPass);
     manager.register_pass<ov::pass::ConstantFolding>();
+    REGISTER_PASS(manager, PrintPass);
+    //bad
 
     auto common_fusions = manager.register_pass<ov::pass::GraphRewrite>();
     ADD_MATCHER(common_fusions, ConvertScatterElementsToScatter)

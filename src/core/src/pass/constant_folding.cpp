@@ -101,12 +101,32 @@ static void remove_requires_precision_conversion_attribute(const std::shared_ptr
     }
 }
 
+bool present(std::string f_name, const std::shared_ptr<ov::Model>& model) {
+    for (auto& op: model->get_ordered_ops()) {
+        if (op->get_friendly_name() == f_name) {
+            if (auto constant = ov::as_type_ptr<ov::op::v0::Constant>(op)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool previous = false;
+
+#define on_broadcast original_node->get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19"
+
 bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& model) {
     RUN_ON_MODEL_SCOPE(ConstantFolding);
+    // std::cout << "!!!RUNNING Constant Folding" << std::endl;
 
     bool rewritten = pre_calculated_values_folding(model);
 
     for (const auto& original_node : model->get_ordered_ops()) {
+        if (m_to_print && on_broadcast) {
+            std::cout << "!!! 1) " << original_node << std::endl;
+            previous = true;
+        }
         auto node = original_node;
         if (!original_node->can_constant_fold(original_node->input_values())) {
             if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(node)) {
@@ -135,7 +155,18 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
         }
 
         OutputVector replacements(node->get_output_size());
+        if (m_to_print && on_broadcast) {
+            std::cout << "!!! 5) " << "input values " << std::endl;
+            auto input_values = node->input_values();
+            for (auto iv : input_values) {
+                std::cout << iv.get_element_type() << iv.get_partial_shape() << "  ";
+            }
+            std::cout << std::endl;
+        }
         if (node->constant_fold(replacements, node->input_values())) {
+            if (m_to_print && on_broadcast) {
+                std::cout << "!!! 6) " << original_node << std::endl;
+            }
             OPENVINO_ASSERT(!constant_folding_is_disabled(original_node),
                             "Node folded but constant folding disabled. Check constant_fold implementation for ",
                             node);
@@ -162,6 +193,9 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
                 }
             }
         } else {
+            if (m_to_print && on_broadcast) {
+                std::cout << "!!! 7) " << original_node << std::endl;
+            }
             // if CF was unsuccessful remove original precision attribute from inputs
             bool restored = restore_original_input_precision(original_node);
             if (restored) {

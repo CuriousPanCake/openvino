@@ -277,6 +277,7 @@ bool convert_function_precision(ov::pass::PassBase& pass,
         if (auto sub_graph_node = ov::as_type_ptr<op::util::MultiSubGraphOp>(node)) {
             size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
             for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                // std::cout << "!!! ENTERING MSG" << std::endl;
                 is_changed = convert_function_precision(pass,
                                                         sub_graph_node->get_function(static_cast<int>(sub_graph_ind)),
                                                         type_to_fuse,
@@ -291,6 +292,7 @@ bool convert_function_precision(ov::pass::PassBase& pass,
                                                         store_original_precision_as_rt_attribute,
                                                         names_compatibility_mode) ||
                              is_changed;
+                // std::cout << "!!! EXITING MSG" << std::endl;
             }
         }
         // if convert_input_output_precision flag is set, we don't need to preserve the original precision
@@ -416,6 +418,7 @@ precisions_set_t find_all_used_precisions(const std::shared_ptr<ov::Model>& fn) 
 }  // namespace
 
 bool ov::pass::ConvertPrecision::run_on_model(const std::shared_ptr<ov::Model>& f) {
+    // std::cout << "RUNNING CP" << std::endl;
     const auto used_precisions_set = find_all_used_precisions(f);
     precisions_map used_precisions;
     for (const auto& p : used_precisions_set) {
@@ -504,12 +507,16 @@ bool ov::pass::ConvertPrecision::run_on_model(const std::shared_ptr<ov::Model>& 
                                         m_store_original_precision_as_rt_attribute);
 
     // to remove extra converts
+    if (m_to_print)
+        std::cout << "\n\n\n!!! CONVERT PRECISION: BEFORE CONSTANT FOLDING" << std::endl;
     if (m_keep_precision_sensitive_in_fp32) {
         pass::Manager manager(get_pass_config(), "KeepPrecisionSensitiveInFP32:RemoveConverts");
         manager.register_pass<pass::EnableDecompressionConvertConstantFolding>();
-        manager.register_pass<pass::ConstantFolding>();
+        manager.register_pass<pass::ConstantFolding>(m_to_print);
         manager.run_passes(f);
     }
+    if (m_to_print)
+        std::cout << "!!! CONVERT PRECISION: AFTER CONSTANT FOLDING\n\n\n" << std::endl;
 
     (void)is_changed;  // ignored
 

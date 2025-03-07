@@ -745,6 +745,10 @@ bool ov::Node::constant_fold(OutputVector& output_values, const OutputVector& in
     if (evaluate(output_tensors, input_tensors)) {
         for (size_t i = 0; i < output_tensors.size(); ++i) {
             output_values[i] = make_shared<ov::op::v0::Constant>(output_tensors[i]);
+            if (get_name() == "Broadcast_361029") {
+                std::cout << "appeared " << output_values[i] << std::endl;
+                std::cout << output_tensors[i] << std::endl;
+            }
             ov::copy_runtime_info(nodes, output_values[i].get_node_shared_ptr());
         }
         return true;
