@@ -42,6 +42,8 @@
 #include "transformations/rt_info/fused_names_attribute.hpp"
 #include "transformations/utils/utils.hpp"
 
+#include "openvino/op/util/multi_subgraph_base.hpp"
+
 // Undef DEVICE_TYPE macro which can be defined somewhere in windows headers as DWORD and conflict with our metric
 #ifdef DEVICE_TYPE
 #undef DEVICE_TYPE
@@ -89,9 +91,58 @@ void Plugin::transform_model(std::shared_ptr<ov::Model>& model, const ExecutionC
     TransformationsPipeline transformations(config, context);
 
     auto start = Time::now();
+    std::cout << "apply 1" << std::endl;
     transformations.apply(model);
     GPU_DEBUG_LOG << "Transformations time: " << std::chrono::duration_cast<ms>(Time::now() - start).count() << " ms" << std::endl;
 }
+
+class PrintPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PrintPass");
+    PrintPass(const std::string& content = "", const std::string& device = "CPU") : m_content(content), m_device(device) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        std::cout << "INSIDE PRINT_PASS" << std::endl;
+        // static bool can_print = false;
+        static int counter = 0;
+        bool body_to_print = required_body(model);
+        // if (can_print && body_to_print)
+        std::cout << "----" << m_content << std::endl;
+        for (auto& op : model->get_ordered_ops()) {
+            // if (can_print && body_to_print)
+                // std::cout << op->get_friendly_name()<< std::endl;
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                // can_print = true;
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                        // can_print = true;
+                        run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                        // can_print = false;
+                }
+            }
+        }
+        // if (can_print && body_to_print) {
+        if (body_to_print) {
+            std::cout << "DUMPING " << std::endl;
+            ov::pass::VisualizeTree(m_device + "print_pass_plugin" + std::to_string(counter++) + ".svg").run_on_model(model);
+        } else {
+            std::cout << "NOT A VALID BODY GPU" << std::endl;
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_content;
+    std::string m_device;
+};
 
 std::shared_ptr<ov::Model> Plugin::clone_and_transform_model(const std::shared_ptr<const ov::Model>& model,
                                                              const ExecutionConfig& config,
@@ -188,7 +239,10 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
 
     auto transformed_model = clone_and_transform_model(model, config, context);
 
+    std::cout << "compile_model 1" << std::endl;
     config.finalize(context.get(), transformed_model.get());
+    // PrintPass("aaaaaaaaaaaaaaa", "GPU").run_on_model(transformed_model);
+
     {
         OV_ITT_SCOPED_TASK(itt::domains::intel_gpu_plugin, "Plugin::compile_model::CreateCompiledModel");
         return std::make_shared<CompiledModel>(transformed_model, shared_from_this(), context, config);
@@ -210,6 +264,7 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
 
     config.finalize(context_impl.get(), transformed_model.get());
 
+    std::cout << "compile_model 2" << std::endl;
     return std::make_shared<CompiledModel>(transformed_model, shared_from_this(), context_impl, config);
 }
 
@@ -755,6 +810,7 @@ uint32_t Plugin::get_max_batch_size(const ov::AnyMap& options) const {
         }
 
         TransformationsPipeline transformations(config, context);
+        std::cout << "apply 2" << std::endl;
         transformations.apply(cloned_model);
         program = std::make_shared<ProgramBuilder>(cloned_model, engine, config);
         std::pair<int64_t, int64_t> device_memory_usage = program->get_compiled_program()->get_estimated_device_mem_usage();

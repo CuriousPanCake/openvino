@@ -17,6 +17,9 @@
 #include "transformations/rt_info/decompression.hpp"
 #include "transformations/rt_info/dequantization_node.hpp"
 
+#include "openvino/pass/visualize_tree.hpp"
+#include "openvino/op/broadcast.hpp"
+
 /**
  * \brief Check if \ref ov::Output<ov::Node> can be folded base on `can_be_folded` attribute.
  *
@@ -124,11 +127,27 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
 
     for (const auto& original_node : model->get_ordered_ops()) {
         if (m_to_print && on_broadcast) {
+            if (auto a = ov::as_type_ptr<ov::op::v1::Broadcast>(original_node)) {
+                std::cout << "casted" << std::endl;
+                ov::pass::VisualizeTree("GPU_on_broadcast.svg").run_on_model(model);
+            }
             std::cout << "!!! 1) " << original_node << std::endl;
-            previous = true;
         }
+        // if (m_to_print && (original_node->get_name() == "Constant_291752" ||
+        //                    original_node->get_name() == "Multiply_291753" ||
+        //                    original_node->get_name() == "Add_291816" ||
+        //                    original_node->get_name() == "Reshape_137581" ||
+        //                    original_node->get_name() == "Broadcast_137582" ||
+        //                    original_node->get_name() == "ShapeOf_137577" ||
+        //                    original_node->get_name() == "Squeeze_277293")) {
+        // if (m_to_print) {
+        //     std::cout << original_node->get_name() << std::endl;
+        // }
         auto node = original_node;
         if (!original_node->can_constant_fold(original_node->input_values())) {
+            if (m_to_print && on_broadcast) {
+                std::cout << "!!! 2) CANT CONSTANT FOLD " << original_node << std::endl;
+            }
             if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(node)) {
                 // recursively constant fold operators containing subgraphs (ie: TensorIterator, Loop)
                 size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
@@ -143,10 +162,19 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
             }
             continue;
         }
+        if (m_to_print && on_broadcast) {
+            std::cout << "!!! CAN CONSTANT FOLD " << original_node << std::endl;
+        }
         if (node_has_requires_precision_conversion_attribute(node)) {
+            if (m_to_print && on_broadcast) {
+                std::cout << "!!! 3) " << original_node << std::endl;
+            }
             remove_requires_precision_conversion_attribute(node);
             node = util::convert_to_supported_precision(node.get());
         } else {
+            if (m_to_print && on_broadcast) {
+                std::cout << "!!! 4) " << original_node << std::endl;
+            }
             rewritten = restore_original_input_precision(node) || rewritten;
         }
 
@@ -158,9 +186,24 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
         if (m_to_print && on_broadcast) {
             std::cout << "!!! 5) " << "input values " << std::endl;
             auto input_values = node->input_values();
-            for (auto iv : input_values) {
-                std::cout << iv.get_element_type() << iv.get_partial_shape() << "  ";
+            auto input0 = ov::as_type_ptr<ov::op::v0::Constant>(input_values[0].get_node_shared_ptr());
+            std::cout << "INPUT 0 is : " << input0 << std::endl;
+            auto d0 = input0->cast_vector<float>();
+            std::cout << "DATA: ";
+            for (size_t i = 0; i < d0.size(); ++i) {
+                std::cout << d0[i] << " ";
             }
+            std::cout << std::endl;
+
+            auto input1 = ov::as_type_ptr<ov::op::v0::Constant>(input_values[1].get_node_shared_ptr());
+            std::cout << "INPUT 1 is : " << input1 << std::endl;
+            auto d1 = input1->cast_vector<int>();
+            std::cout << "DATA: ";
+            for (size_t i = 0; i < d1.size(); ++i) {
+                std::cout << d1[i] << " ";
+            }
+            std::cout << std::endl;
+            
             std::cout << std::endl;
         }
         if (node->constant_fold(replacements, node->input_values())) {

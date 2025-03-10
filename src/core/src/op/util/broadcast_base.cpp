@@ -451,6 +451,9 @@ bool ov::op::util::BroadcastBase::evaluate(ov::TensorVector& outputs, const ov::
         result_shape = target_shape;
         validate_target_shape_numpy(arg_shape, target_shape);
         pair_broadcast_axes = get_broadcast_axes_numpy_pdpd(arg_shape, result_shape.to_shape(), m_mode);
+        if (get_name() == "Broadcast_361029") {
+            std::cout << "BroadcastType::NUMPY: " << result_shape << std::endl;
+        }
     } else {
         OPENVINO_THROW("Unsupported BroadcastType ");
     }

@@ -264,9 +264,9 @@ bool ov::pass::MOCTransformations::run_on_model(const std::shared_ptr<ov::Model>
     eliminations->set_name("ov::pass::CommonEliminations");
 
     //good
-    REGISTER_PASS(manager, PrintPass);
+    // REGISTER_PASS(manager, PrintPass);
     manager.register_pass<ov::pass::ConstantFolding>();
-    REGISTER_PASS(manager, PrintPass);
+    // REGISTER_PASS(manager, PrintPass);
     //bad
 
     auto common_fusions = manager.register_pass<ov::pass::GraphRewrite>();

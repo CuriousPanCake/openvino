@@ -508,8 +508,11 @@ bool ov::pass::ConvertPrecision::run_on_model(const std::shared_ptr<ov::Model>& 
 
     // to remove extra converts
     if (m_to_print)
-        std::cout << "\n\n\n!!! CONVERT PRECISION: BEFORE CONSTANT FOLDING" << std::endl;
+        std::cout << "\n\n\n!!! CONVERT PRECISION: BEFORE CONSTANT FOLDING: " << m_keep_precision_sensitive_in_fp32 << std::endl;
     if (m_keep_precision_sensitive_in_fp32) {
+        if (m_to_print) {
+            std::cout << "CALLING CONSTANT FOLDING" << std::endl;
+        }
         pass::Manager manager(get_pass_config(), "KeepPrecisionSensitiveInFP32:RemoveConverts");
         manager.register_pass<pass::EnableDecompressionConvertConstantFolding>();
         manager.register_pass<pass::ConstantFolding>(m_to_print);

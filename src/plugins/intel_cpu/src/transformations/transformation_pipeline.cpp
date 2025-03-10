@@ -194,6 +194,8 @@
 #endif
 #include "openvino/core/validation_util.hpp"
 
+#include "openvino/pass/visualize_tree.hpp"
+
 namespace ov::intel_cpu {
 
 using const_node_ptr = const std::shared_ptr<const ov::Node>;
@@ -348,6 +350,87 @@ void Transformations::CpuSpecificOpSet() {
     ConvertToCPUSpecificOpset(model, config);
 }
 
+class PrintPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PrintPass");
+    PrintPass(const std::string& name = "print_pass", const std::string& content = "", const std::string& device = "CPU") : m_content(content), m_device(device), m_name(name) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        // static bool can_print = false;
+        static int counter = 0;
+        bool body_to_print = required_body(model);
+        // if (can_print && body_to_print)
+            // std::cout << "----" << m_content << std::endl;
+        for (auto& op : model->get_ordered_ops()) {
+            // if (can_print && body_to_print)
+                // std::cout << op->get_friendly_name()<< std::endl;
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                // can_print = true;
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                        // can_print = true;
+                        run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                        // can_print = false;
+                }
+            }
+        }
+        // if (can_print && body_to_print) {
+        if (body_to_print) {
+            std::cout << "----" << std::endl << std::endl;
+            ov::pass::VisualizeTree(m_device + m_name + std::to_string(counter++) + ".svg").run_on_model(model);
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_content;
+    std::string m_device;
+    std::string m_name;
+};
+
+class PresentPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PresentPass");
+    PresentPass(const std::string& name) : m_name(name) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        bool body_to_print = required_body(model);
+        for (auto& op : model->get_ordered_ops()) {
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                    run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                }
+            }
+            if (body_to_print) {
+                if (op->get_friendly_name() == m_name) {
+                    std::cout << "PRESENT: " << op << std::endl;
+                }
+            }
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_name;
+};
+
 void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecisions) {
     CPU_DEBUG_CAP_TRANSFORMATION_SCOPE(this, PreLpt);
 
@@ -437,12 +520,15 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
         type_to_fuse_map fuse_map = {{ov::op::PagedAttentionExtension::get_type_info_static(), fuse_type_to_pa}};
 #endif
         const bool keep_precision_sensitive_in_fp32 = true;
+        // std::cout << "!!!ONE" << std::endl;
+        // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! BEFORE ConvertPrecision one", "CPU");
         CPU_REGISTER_PASS_COMMON(manager,
                                  ov::pass::ConvertPrecision,
                                  fp_convert_precision_map,
                                  fuse_map,
                                  keep_precision_sensitive_in_fp32,
                                  false);
+        // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! AFTER ConvertPrecision one", "CPU");
     }
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::KeepConstAndDecompression);
     CPU_SET_CALLBACK_COMMON(
@@ -498,7 +584,9 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertMatrixNmsToMatrixNmsIE);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::Validate);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::TransposeMatMul);
-    CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConstantFolding);
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "CPU_BEFORE_CONSTANT_FOLDING");
+    CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConstantFolding, true);
+    CPU_REGISTER_PASS_COMMON(manager, PresentPass, "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
     CPU_REGISTER_PASS_ARM64(manager, ov::pass::HardSigmoidDecomposition);
 
     if (useLpt) {
@@ -515,12 +603,15 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     // Do not insert pass::Validate between pass::InsertConvertAfterExtension and pass::ConvertPrecision.
     // This may result in the loss of the original Element type of the Output .
     // element type convert is disabled.
+    std::cout << "!!! TWO" << std::endl;
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! BEFORE ConvertPrecision two", "CPU");
     CPU_REGISTER_PASS_COMMON(manager,
                              ov::pass::ConvertPrecision,
                              precisions,
                              type_to_fuse,
                              false,
                              convert_input_output_precision);
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! AFTER ConvertPrecision two", "CPU");
 
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::EliminateConvert);
     CPU_REGISTER_PASS_COMMON(manager, SwapConvertTranspose);

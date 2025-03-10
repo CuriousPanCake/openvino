@@ -31,6 +31,8 @@
 
 #include "cpu/x64/cpu_isa_traits.hpp"
 
+#include "openvino/pass/visualize_tree.hpp"
+
 using namespace ov::threading;
 
 namespace ov::intel_cpu {
@@ -212,6 +214,53 @@ static Config::ModelType getModelType(const std::shared_ptr<const Model>& model)
     return Config::ModelType::Unknown;
 }
 
+class PrintPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("PrintPass");
+    PrintPass(const std::string& content = "", const std::string& device = "CPU") : m_content(content), m_device(device) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        // static bool can_print = false;
+        static int counter = 0;
+        bool body_to_print = required_body(model);
+        // if (can_print && body_to_print)
+            // std::cout << "----" << m_content << std::endl;
+        for (auto& op : model->get_ordered_ops()) {
+            // if (can_print && body_to_print)
+                // std::cout << op->get_friendly_name()<< std::endl;
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                // can_print = true;
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                        // can_print = true;
+                        run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                        // can_print = false;
+                }
+            }
+        }
+        // if (can_print && body_to_print) {
+        if (body_to_print) {
+            std::cout << "----" << std::endl << std::endl;
+            ov::pass::VisualizeTree(m_device + "print_pass_plugin" + std::to_string(counter++) + ".svg").run_on_model(model);
+        } else {
+            std::cout << "NOT A BODY TO PRINT" << std::endl;
+        }
+        return true;
+    }
+
+    private:
+        bool required_body(const std::shared_ptr<ov::Model>& model) {
+            for (auto& op : model->get_ordered_ops()) {
+                if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    std::string m_content;
+    std::string m_device;
+};
+
 std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<const ov::Model>& model,
                                                           const ov::AnyMap& orig_config) const {
     OV_ITT_SCOPED_TASK(itt::domains::intel_cpu, "Plugin::compile_model");
@@ -295,6 +344,9 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
             denormals_as_zero(false);
         }
     }
+    std::cout << "!!!aaaa" << std::endl;
+    // PrintPass("aaaa", "CPU").run_on_model(cloned_model);
+
     return std::make_shared<CompiledModel>(cloned_model, shared_from_this(), conf, false);
 }
 

@@ -332,25 +332,26 @@ public:
     OPENVINO_MODEL_PASS_RTTI("PrintPass");
     PrintPass(const std::string& content = "") : m_content(content) {}
     bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
-        static bool can_print = false;
+        // static bool can_print = false;
         static int counter = 0;
         bool body_to_print = required_body(model);
-        if (can_print && body_to_print)
-            std::cout << "----" << m_content << std::endl;
+        // if (can_print && body_to_print)
+            // std::cout << "----" << m_content << std::endl;
         for (auto& op : model->get_ordered_ops()) {
             // if (can_print && body_to_print)
                 // std::cout << op->get_friendly_name()<< std::endl;
             if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
-                can_print = true;
+                // can_print = true;
                 size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
                 for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
-                        can_print = true;
+                        // can_print = true;
                         run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
-                        can_print = false;
+                        // can_print = false;
                 }
             }
         }
-        if (can_print && body_to_print) {
+        // if (can_print && body_to_print) {
+        if (body_to_print) {
             std::cout << "----" << std::endl << std::endl;
             ov::pass::VisualizeTree("print_pass" + std::to_string(counter++) + ".svg").run_on_model(model);
         }

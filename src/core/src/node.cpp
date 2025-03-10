@@ -708,9 +708,17 @@ bool ov::Node::can_constant_fold(const OutputVector& input_values) const {
     }
 
     // If all the inputs are constants, try to evaluate the outputs
-    bool all_constants = std::all_of(input_values.begin(), input_values.end(), [](const Output<Node>& input) {
+    bool all_constants = std::all_of(input_values.begin(), input_values.end(), [&](const Output<Node>& input) {
+        if (get_friendly_name() ==
+            "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19") {
+            std::cout << "> " << input.get_node_shared_ptr() << std::endl;
+        }
         return ov::as_type_ptr<ov::op::v0::Constant>(input.get_node_shared_ptr());
     });
+    if (get_friendly_name() ==
+        "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19") {
+        std::cout << "can_constant_fold(): " << get_name() << " " << all_constants << std::endl;
+    }
 
     return all_constants;
 }
@@ -747,7 +755,6 @@ bool ov::Node::constant_fold(OutputVector& output_values, const OutputVector& in
             output_values[i] = make_shared<ov::op::v0::Constant>(output_tensors[i]);
             if (get_name() == "Broadcast_361029") {
                 std::cout << "appeared " << output_values[i] << std::endl;
-                std::cout << output_tensors[i] << std::endl;
             }
             ov::copy_runtime_info(nodes, output_values[i].get_node_shared_ptr());
         }
