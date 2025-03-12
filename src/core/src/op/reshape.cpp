@@ -97,8 +97,15 @@ bool Reshape::evaluate_symbol(TensorSymbolVector& output_symbols) const {
 }
 
 bool Reshape::constant_fold(OutputVector& output_values, const OutputVector& inputs_values) {
+    if (get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_18/Reshape") {
+        std::cout << "inside Reshape::constant_fold()" << std::endl;
+    }
     if (!can_constant_fold(inputs_values)) {
         return false;
+    }
+    if (get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_18/Reshape") {
+        std::cout << "inside Reshape::constant_fold() cont." << std::endl;
+        std::cout << "inputs_values[0].get_node_shared_ptr(): " << inputs_values[0].get_node_shared_ptr() << std::endl;
     }
 
     if (auto data_const = ov::as_type_ptr<v0::Constant>(inputs_values[0].get_node_shared_ptr())) {

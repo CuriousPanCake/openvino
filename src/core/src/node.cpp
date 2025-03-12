@@ -700,6 +700,12 @@ bool ov::Node::evaluate_symbol(TensorSymbolVector& output_symbols) const {
     return false;
 }
 
+#define on_add (get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/sub_18")
+#define on_mul ((get_friendly_name() == "Multiply_291753") || (get_friendly_name() == "Multiply_174867"))
+#define on_sqz ((get_friendly_name() == "Squeeze_277293") || (get_friendly_name() == "Squeeze_160407"))
+#define on_cvt ((get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20") || (get_friendly_name() == "ShapeOf_210020"))
+#define on_add on_cvt
+
 bool ov::Node::can_constant_fold(const OutputVector& input_values) const {
     OV_ITT_SCOPED_TASK(ov::itt::domains::core, "Node::can_constant_fold");
 
@@ -709,16 +715,11 @@ bool ov::Node::can_constant_fold(const OutputVector& input_values) const {
 
     // If all the inputs are constants, try to evaluate the outputs
     bool all_constants = std::all_of(input_values.begin(), input_values.end(), [&](const Output<Node>& input) {
-        if (get_friendly_name() ==
-            "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19") {
-            std::cout << "> " << input.get_node_shared_ptr() << std::endl;
+        if (on_add) {
+            std::cout << "can_constant_fold(): " << input.get_node_shared_ptr() << std::endl;
         }
         return ov::as_type_ptr<ov::op::v0::Constant>(input.get_node_shared_ptr());
     });
-    if (get_friendly_name() ==
-        "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19") {
-        std::cout << "can_constant_fold(): " << get_name() << " " << all_constants << std::endl;
-    }
 
     return all_constants;
 }

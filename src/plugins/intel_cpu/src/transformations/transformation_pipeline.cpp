@@ -431,6 +431,47 @@ public:
     std::string m_name;
 };
 
+class StaticPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("StaticPass");
+    StaticPass(const std::string& name, const std::string& when) : m_name(name), m_when(when) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        bool rb = required_body(model);
+        for (auto& op : model->get_ordered_ops()) {
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                    run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                }
+            }
+            if (rb) {
+                // auto shape_of = ov::as_type_ptr<ov::op::v3::ShapeOf>(op);
+                if (op->get_name() ==
+                    "ShapeOf_210020") {
+                    std::cout << m_when << " " << (op->input_value(0).get_partial_shape().is_static() ? "STATIC " : "NOT STATIC ") << op << std::endl;
+                    return true;
+                }
+            }
+        }
+        if (rb) {
+            std::cout << m_when << " NO SHAPE OF PRESENT" << std::endl;
+        }
+        return false;
+    }
+
+    bool required_body(const std::shared_ptr<ov::Model>& model) {
+        for (auto& op : model->get_ordered_ops()) {
+            if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+    std::string m_name;
+    std::string m_when;
+};
+
+
 void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecisions) {
     CPU_DEBUG_CAP_TRANSFORMATION_SCOPE(this, PreLpt);
 
@@ -441,6 +482,7 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     decompression_handling_manager.set_per_pass_validation(false);
     CPU_REGISTER_PASS_COMMON(decompression_handling_manager, ov::pass::InitNodeInfo);
     const bool useLpt = !defaultPrecisions.empty();
+    CPU_REGISTER_PASS_COMMON(decompression_handling_manager, StaticPass, "", "BEGINNNING OF CPU PIPELINE");
     CPU_REGISTER_PASS_COMMON(decompression_handling_manager, ov::pass::ConvertGatherToGatherCompressed);
     CPU_REGISTER_PASS_COMMON(decompression_handling_manager, ov::pass::MarkShapeOfSubgraphs);
     // We need to fuse Transpose to MatMul to have a simpler callback for the next transformation
@@ -565,6 +607,7 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
             return !is_decompression_multiply(node);
         },
         ov::pass::KeepConstPrecision);
+    CPU_REGISTER_PASS_COMMON(manager, StaticPass, "", "before WrapInterpolateIntoTransposes");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::WrapInterpolateIntoTransposes);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::TransposeSinking);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertSequenceToTensorIterator);
@@ -584,7 +627,7 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertMatrixNmsToMatrixNmsIE);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::Validate);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::TransposeMatMul);
-    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "CPU_BEFORE_CONSTANT_FOLDING");
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "BEFORE_CONSTANT_FOLDING");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConstantFolding, true);
     CPU_REGISTER_PASS_COMMON(manager, PresentPass, "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
     CPU_REGISTER_PASS_ARM64(manager, ov::pass::HardSigmoidDecomposition);
@@ -604,6 +647,7 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     // This may result in the loss of the original Element type of the Output .
     // element type convert is disabled.
     std::cout << "!!! TWO" << std::endl;
+    CPU_REGISTER_PASS_COMMON(manager, StaticPass, "", "BEFORE ConvertPrecision two");
     // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! BEFORE ConvertPrecision two", "CPU");
     CPU_REGISTER_PASS_COMMON(manager,
                              ov::pass::ConvertPrecision,

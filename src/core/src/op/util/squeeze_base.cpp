@@ -67,16 +67,35 @@ bool SqueezeBase::can_constant_fold(const OutputVector& inputs_values) const {
     return get_output_partial_shape(0).is_static() && !is_const_fold_disabled();
 }
 
+#define on_add get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/sub_18"
+#define on_mul ((get_friendly_name() == "Multiply_291753") || (get_friendly_name() == "Multiply_174867"))
+#define on_sqz ((get_friendly_name() == "Squeeze_277293") || (get_friendly_name() == "Squeeze_160407"))
+#define on_cvt ((get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20") || (get_friendly_name() == "ShapeOf_210020"))
+#define on_add on_cvt
+
 bool SqueezeBase::constant_fold(OutputVector& output_values, const OutputVector& inputs_values) {
     OV_OP_SCOPE(util_SqueezeBase_constant_fold);
     if (!can_constant_fold(inputs_values)) {
         return false;
     }
 
+    if (on_add) {
+        std::cout << "SqueezeBase::constant_fold(): 1 " << std::endl;
+        std::cout << "SqueezeBase::constant_fold(): inputs_values[0].get_node_shared_ptr() " << inputs_values[0].get_node_shared_ptr() << std::endl;
+    }
+
+    NodeVector nodes;
+
     if (auto data_const = ov::as_type_ptr<ov::op::v0::Constant>(inputs_values[0].get_node_shared_ptr())) {
         const auto& shape = get_output_shape(0);
         output_values[0] = std::make_shared<ov::op::v0::Constant>(*data_const, shape);
+        if (on_add) {
+            std::cout << "SqueezeBase::constant_fold(): exiting true" << std::endl;
+        }
         return true;
+    }
+    if (on_add) {
+        std::cout << "SqueezeBase::constant_fold(): 2" << std::endl;
     }
     return false;
 }

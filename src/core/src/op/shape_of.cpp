@@ -168,7 +168,12 @@ bool ShapeOf::evaluate_symbol(TensorSymbolVector& output_symbols) const {
     return shape_of::evaluate_symbol(this, output_symbols);
 }
 
+#define on_cvt ((get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20") || (get_friendly_name() == "ShapeOf_210020"))
 bool ShapeOf::can_constant_fold(const OutputVector& input_values) const {
+    if (on_cvt) {
+        std::cout << "0th input: " << input_values[0].get_node_shared_ptr() << std::endl;
+        std::cout << "ShapeOf::can_constant_fold(): " << get_friendly_name() << " !is_const_fold_disabled() " << !is_const_fold_disabled() << " --  input_values[0].get_partial_shape().is_static(): " << input_values[0].get_partial_shape().is_static() << std::endl;
+    }
     return !is_const_fold_disabled() && input_values[0].get_partial_shape().is_static();
 }
 

@@ -406,6 +406,46 @@ public:
     std::string m_name;
 };
 
+class StaticPass : public ov::pass::ModelPass {
+public:
+    OPENVINO_MODEL_PASS_RTTI("StaticPass");
+    StaticPass(const std::string& name, const std::string& when) : m_name(name), m_when(when) {}
+    bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
+        bool rb = required_body(model);
+        for (auto& op : model->get_ordered_ops()) {
+            if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
+                size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
+                for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
+                    run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
+                }
+            }
+            if (rb) {
+                auto shape_of = ov::as_type_ptr<ov::op::v3::ShapeOf>(op);
+                if (shape_of && op->get_friendly_name() ==
+                    "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20") {
+                    std::cout << m_when << " " << (shape_of->input_value(0).get_partial_shape().is_static() ? "STATIC " : "NOT STATIC ") << std::endl;
+                    return true;
+                }
+            }
+        }
+        if (rb) {
+            std::cout << m_when << " NO SHAPE OF PRESENT" << std::endl;
+        }
+        return false;
+    }
+
+    bool required_body(const std::shared_ptr<ov::Model>& model) {
+        for (auto& op : model->get_ordered_ops()) {
+            if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+    std::string m_name;
+    std::string m_when;
+};
+
 void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
     OV_ITT_SCOPED_TASK(itt::domains::intel_gpu_plugin, "TransformationsPipeline::apply");
     using const_node_ptr = const std::shared_ptr<const ov::Node>;
@@ -429,6 +469,8 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         auto is_model_quantized = ov::pass::low_precision::LowPrecision::isFunctionQuantized(func);
         enableInt8 = config.get_enable_lp_transformations() && is_model_quantized;
 
+        manager.register_pass<StaticPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20",
+                                          "BEGINNING OF PIPELINE");
         manager.register_pass<ov::pass::MarkDequantization>(
             std::vector<ov::element::Type>{ ov::element::i8, ov::element::u8, ov::element::i4, ov::element::u4 },
             !device_info.supports_immad);
@@ -689,7 +731,9 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
 
         // To convert to f16 input to boolean which is converted to u8, add abs + ceiling + clamp before convert.
         type_to_fuse_map type_to_fuse = {{ov::opset10::Convert::get_type_info_static(), fuse_type_to_convert}};
-        // manager.register_pass<PrintPass>("!!! BEFORE ConvertPrecision two");
+        manager.register_pass<StaticPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20",
+                                          "BEFORE ConvertPrecision two");
+        manager.register_pass<PrintPass>("!!! BEFORE ConvertPrecision two");
         // manager.register_pass<PresentPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
         manager.register_pass<ov::pass::ConvertPrecision>(int_convert_precision_map,
                                                           type_to_fuse,
@@ -1289,6 +1333,8 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         GPU_DEBUG_IF(config.get_verbose() >= 1) {
             manager.register_pass<ov::intel_gpu::PrintModelStatistics>();
         }
+        manager.register_pass<StaticPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20",
+                                          "END OF PIPELINE");
         manager.run_passes(func);
     }
 }

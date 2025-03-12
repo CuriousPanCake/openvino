@@ -16,6 +16,7 @@
 #include "openvino/op/util/sub_graph_base.hpp"
 #include "transformations/rt_info/decompression.hpp"
 #include "transformations/rt_info/dequantization_node.hpp"
+#include "openvino/op/shape_of.hpp"
 
 #include "openvino/pass/visualize_tree.hpp"
 #include "openvino/op/broadcast.hpp"
@@ -118,6 +119,36 @@ bool present(std::string f_name, const std::shared_ptr<ov::Model>& model) {
 bool previous = false;
 
 #define on_broadcast original_node->get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19"
+#define on_reshape original_node->get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_18/Reshape"
+#define on_add original_node->get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/sub_18"
+#define on_mul ((original_node->get_friendly_name() == "Multiply_291753") || (original_node->get_friendly_name() == "Multiply_174867"))
+#define on_sqz ((original_node->get_friendly_name() == "Squeeze_277293") || (original_node->get_friendly_name() == "Squeeze_160407"))
+#define on_cvt ((original_node->get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20") || (original_node->get_friendly_name() == "ShapeOf_210020"))
+#define on_rs ((original_node->get_friendly_name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/non_max_suppression_with_scores_9/NonMaxSuppressionV5"))
+#define on_broadcast on_rs
+
+
+static bool required_body(const std::shared_ptr<ov::Model>& model) {
+    for (auto& op : model->get_ordered_ops()) {
+        if (op->get_friendly_name().find("zeros_19") != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void print_shapeof(const std::shared_ptr<ov::Model>& model, const std::shared_ptr<ov::Node>& original_node) {
+    bool rb = required_body(model);
+    if (rb) {
+        for (auto &op : model->get_ordered_ops()) {
+            if (op->get_name() == "ShapeOf_137577" || op->get_name() == "ShapeOf_210020") {
+                std::cout << "ON " << original_node->get_name() << " "
+                          << op->get_name() << "'s input0 is " << (op->input_value(0).get_partial_shape().is_static() ? " STATIC " : "NOT STATIC") << " of " << op->input_value(0).get_node_shared_ptr()->get_name() << std::endl;
+                break;
+            }
+        }
+    }
+}
 
 bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& model) {
     RUN_ON_MODEL_SCOPE(ConstantFolding);
@@ -126,27 +157,26 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
     bool rewritten = pre_calculated_values_folding(model);
 
     for (const auto& original_node : model->get_ordered_ops()) {
+        print_shapeof(model, original_node);
+        std::shared_ptr<ov::Node> consumer = nullptr;
         if (m_to_print && on_broadcast) {
-            if (auto a = ov::as_type_ptr<ov::op::v1::Broadcast>(original_node)) {
-                std::cout << "casted" << std::endl;
-                ov::pass::VisualizeTree("GPU_on_broadcast.svg").run_on_model(model);
+            std::cout << "!!! 1) " << original_node << " output(0) is static: " << original_node->output(0).get_partial_shape().is_static() << std::endl;
+            auto ti = original_node->output(0).get_target_inputs();
+            for (auto& a : ti) {
+                if (auto shapeof = ov::as_type_ptr<ov::op::v3::ShapeOf>(a.get_node()->shared_from_this())) {
+                    std::cout << "FOUND SHAPEOF" << std::endl;
+                    consumer = shapeof;
+                    std::cout << "!!!input of shape_of is " << (shapeof->input(0).get_partial_shape().is_static() ? "STATIC " : "DYNAMIC ") << std::endl;
+                }
             }
-            std::cout << "!!! 1) " << original_node << std::endl;
         }
-        // if (m_to_print && (original_node->get_name() == "Constant_291752" ||
-        //                    original_node->get_name() == "Multiply_291753" ||
-        //                    original_node->get_name() == "Add_291816" ||
-        //                    original_node->get_name() == "Reshape_137581" ||
-        //                    original_node->get_name() == "Broadcast_137582" ||
-        //                    original_node->get_name() == "ShapeOf_137577" ||
-        //                    original_node->get_name() == "Squeeze_277293")) {
-        // if (m_to_print) {
-        //     std::cout << original_node->get_name() << std::endl;
-        // }
         auto node = original_node;
         if (!original_node->can_constant_fold(original_node->input_values())) {
             if (m_to_print && on_broadcast) {
-                std::cout << "!!! 2) CANT CONSTANT FOLD " << original_node << std::endl;
+                std::cout << "!!! 2) CANNOT CONSTANT FOLD " << original_node << " output(0) is static: " << original_node->output(0).get_partial_shape().is_static() << std::endl;
+                if (consumer) {
+                    std::cout << "* !!!input of shape_of is " << (consumer->input(0).get_partial_shape().is_static() ? "STATIC " : "DYNAMIC ") << std::endl;
+                }
             }
             if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(node)) {
                 // recursively constant fold operators containing subgraphs (ie: TensorIterator, Loop)
@@ -156,9 +186,18 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
                         run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind))) || rewritten;
                 }
             }
+            if (consumer) {
+                std::cout << "/ !!!input of shape_of is " << (consumer->input(0).get_partial_shape().is_static() ? "STATIC " : "DYNAMIC ") << std::endl;
+            }
             rewritten = restore_original_input_precision(original_node) || rewritten;
+            if (consumer) {
+                std::cout << "% !!!input of shape_of is " << (consumer->input(0).get_partial_shape().is_static() ? "STATIC " : "DYNAMIC ") << std::endl;
+            }
             if (rewritten) {
                 original_node->validate_and_infer_types();
+            }
+            if (consumer) {
+                std::cout << "$ !!!input of shape_of is " << (consumer->input(0).get_partial_shape().is_static() ? "STATIC " : "DYNAMIC ") << std::endl;
             }
             continue;
         }
@@ -174,6 +213,7 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
         } else {
             if (m_to_print && on_broadcast) {
                 std::cout << "!!! 4) " << original_node << std::endl;
+                std::cout << "node: " << node->get_friendly_name() << std::endl;
             }
             rewritten = restore_original_input_precision(node) || rewritten;
         }
@@ -183,29 +223,29 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
         }
 
         OutputVector replacements(node->get_output_size());
-        if (m_to_print && on_broadcast) {
-            std::cout << "!!! 5) " << "input values " << std::endl;
-            auto input_values = node->input_values();
-            auto input0 = ov::as_type_ptr<ov::op::v0::Constant>(input_values[0].get_node_shared_ptr());
-            std::cout << "INPUT 0 is : " << input0 << std::endl;
-            auto d0 = input0->cast_vector<float>();
-            std::cout << "DATA: ";
-            for (size_t i = 0; i < d0.size(); ++i) {
-                std::cout << d0[i] << " ";
-            }
-            std::cout << std::endl;
+        // if (m_to_print && on_broadcast) {
+        //     std::cout << "!!! 5) " << "input values " << std::endl;
+        //     auto input_values = node->input_values();
+        //     auto input0 = ov::as_type_ptr<ov::op::v0::Constant>(input_values[0].get_node_shared_ptr());
+        //     std::cout << "INPUT 0 is : " << input0 << std::endl;
+        //     auto d0 = input0->cast_vector<float>();
+        //     std::cout << "DATA: ";
+        //     for (size_t i = 0; i < d0.size(); ++i) {
+        //         std::cout << d0[i] << " ";
+        //     }
+        //     std::cout << std::endl;
 
-            auto input1 = ov::as_type_ptr<ov::op::v0::Constant>(input_values[1].get_node_shared_ptr());
-            std::cout << "INPUT 1 is : " << input1 << std::endl;
-            auto d1 = input1->cast_vector<int>();
-            std::cout << "DATA: ";
-            for (size_t i = 0; i < d1.size(); ++i) {
-                std::cout << d1[i] << " ";
-            }
-            std::cout << std::endl;
+        //     auto input1 = ov::as_type_ptr<ov::op::v0::Constant>(input_values[1].get_node_shared_ptr());
+        //     std::cout << "INPUT 1 is : " << input1 << std::endl;
+        //     auto d1 = input1->cast_vector<int>();
+        //     std::cout << "DATA: ";
+        //     for (size_t i = 0; i < d1.size(); ++i) {
+        //         std::cout << d1[i] << " ";
+        //     }
+        //     std::cout << std::endl;
             
-            std::cout << std::endl;
-        }
+        //     std::cout << std::endl;
+        // }
         if (node->constant_fold(replacements, node->input_values())) {
             if (m_to_print && on_broadcast) {
                 std::cout << "!!! 6) " << original_node << std::endl;
@@ -235,9 +275,12 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
                     rewritten = true;
                 }
             }
+            if (m_to_print && on_broadcast) {
+                std::cout << "!!! 6.5) CF SUCCESSFULL(?) exiting with rewritten: " << rewritten << " " << original_node << std::endl;
+            }
         } else {
             if (m_to_print && on_broadcast) {
-                std::cout << "!!! 7) " << original_node << std::endl;
+                std::cout << "!!! 7) CONSTANT FOLDING UNSUCCESFUL " << original_node->get_name() << " " << original_node << std::endl;
             }
             // if CF was unsuccessful remove original precision attribute from inputs
             bool restored = restore_original_input_precision(original_node);
@@ -246,6 +289,12 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
                 rewritten = true;
             }
         }
+        // if (m_to_print && on_broadcast) {
+        //     std::cout << "after processing reshape: " << std::endl;
+        //     std::cout << "original: " << original_node << std::endl;
+        //     std::cout << "node: " << node << std::endl;
+        // }
+
     }
 
     return rewritten;
