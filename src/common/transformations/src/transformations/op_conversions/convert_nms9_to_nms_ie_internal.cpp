@@ -22,8 +22,10 @@ ov::pass::ConvertNMS9ToNMSIEInternal::ConvertNMS9ToNMSIEInternal() {
     auto nms = ov::pass::pattern::wrap_type<ov::op::v9::NonMaxSuppression>();
 
     matcher_pass_callback callback = [OV_CAPTURE_CPY_AND_THIS](pattern::Matcher& m) {
+        std::cout << "STARTED " << matcher_name << std::endl;
         auto nms_9 = ov::as_type_ptr<ov::op::v9::NonMaxSuppression>(m.get_match_root());
         if (!nms_9 || transformation_callback(nms_9)) {
+            std::cout << "EXITED " << std::endl;
             return false;
         }
 
@@ -127,6 +129,7 @@ ov::pass::ConvertNMS9ToNMSIEInternal::ConvertNMS9ToNMSIEInternal() {
         nms_legacy->set_friendly_name(nms_9->get_friendly_name());
         ov::copy_runtime_info(nms_9, new_ops);
         ov::replace_node(nms_9, {output_0, nms_legacy->output(1), output_2});
+        std::cout << "!!!FINISHED " << matcher_name << std::endl;
         return true;
     };
 

@@ -128,7 +128,7 @@
 class PrintPass : public ov::pass::ModelPass {
 public:
     OPENVINO_MODEL_PASS_RTTI("PrintPass");
-    PrintPass(const std::string& content = "") : m_content(content) {}
+    PrintPass(const std::string& content = "", const std::string& where = "") : m_content(content), m_where(where) {}
     bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
         static bool can_print = false;
         static int counter = 0;
@@ -150,7 +150,7 @@ public:
         }
         if (can_print && body_to_print) {
             std::cout << "----" << std::endl << std::endl;
-            ov::pass::VisualizeTree("print_pass" + std::to_string(counter++) + ".svg").run_on_model(model);
+            ov::pass::VisualizeTree(m_where + std::to_string(counter++) + ".svg").run_on_model(model);
         }
         return true;
     }
@@ -166,6 +166,7 @@ public:
         }
 
     std::string m_content;
+    std::string m_where;
 };
 
 bool ov::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ov::Model>& f) {
@@ -181,7 +182,9 @@ bool ov::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ov::Model
     // Disable low_precision_enabled as all plugins handle low-precision sub-graph manually
     // before CommonOptimization pipeline execution
     //good (?)
+    REGISTER_PASS(manager, PrintPass, "", "GPU_before_MOC_Transformations.svg")
     REGISTER_PASS(manager, MOCTransformations, true, false)
+    REGISTER_PASS(manager, PrintPass, "", "GPU_after_MOC_Transformations.svg")
     //already [..100]
 
     // Enabling conversion of FP16 IR to legacy representation, each plugin have to disable it

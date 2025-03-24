@@ -172,6 +172,7 @@
 #include "transformations/rt_info/fused_names_attribute.hpp"
 #include "transformations/rt_info/keep_const_precision.hpp"
 #include "transformations/smart_reshape/matmul_sr.hpp"
+#include "transformations/op_conversions/convert_slice_to_strided_slice.hpp"
 
 namespace {
 template<typename T>
@@ -330,30 +331,21 @@ bool TransformationsPipeline::fuse_type_to_convert(const std::shared_ptr<ov::Nod
 class PrintPass : public ov::pass::ModelPass {
 public:
     OPENVINO_MODEL_PASS_RTTI("PrintPass");
-    PrintPass(const std::string& content = "") : m_content(content) {}
+    PrintPass(const std::string& content = "", const std::string& where = "print_pass") : m_content(content), m_where(where) {}
     bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
-        // static bool can_print = false;
         static int counter = 0;
         bool body_to_print = required_body(model);
-        // if (can_print && body_to_print)
-            // std::cout << "----" << m_content << std::endl;
         for (auto& op : model->get_ordered_ops()) {
-            // if (can_print && body_to_print)
-                // std::cout << op->get_friendly_name()<< std::endl;
             if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
-                // can_print = true;
                 size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
                 for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
-                        // can_print = true;
-                        run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
-                        // can_print = false;
+                    run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
                 }
             }
         }
-        // if (can_print && body_to_print) {
         if (body_to_print) {
             std::cout << "----" << std::endl << std::endl;
-            ov::pass::VisualizeTree("print_pass" + std::to_string(counter++) + ".svg").run_on_model(model);
+            ov::pass::VisualizeTree(m_where + std::to_string(counter++) + ".svg").run_on_model(model);
         }
         return true;
     }
@@ -369,6 +361,7 @@ public:
         }
 
     std::string m_content;
+    std::string m_where;
 };
 
 class PresentPass : public ov::pass::ModelPass {
@@ -469,8 +462,9 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         auto is_model_quantized = ov::pass::low_precision::LowPrecision::isFunctionQuantized(func);
         enableInt8 = config.get_enable_lp_transformations() && is_model_quantized;
 
-        manager.register_pass<StaticPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20",
-                                          "BEGINNING OF PIPELINE");
+        manager.register_pass<PrintPass>("", "GPU_beginning_of_GPU_pipeline.svg");
+        // manager.register_pass<StaticPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20",
+        //                                   "BEGINNING OF PIPELINE");
         manager.register_pass<ov::pass::MarkDequantization>(
             std::vector<ov::element::Type>{ ov::element::i8, ov::element::u8, ov::element::i4, ov::element::u4 },
             !device_info.supports_immad);
@@ -580,7 +574,9 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         // manager.register_pass<PrintPass>("!!! AFTER ConvertPrecision one");
 
         //still good(?) here
+        manager.register_pass<PrintPass>("", "GPU_before_CommonOptimizations.svg");
         manager.register_pass<ov::pass::CommonOptimizations>();
+        manager.register_pass<PrintPass>("", "GPU_after_CommonOptimizations.svg");
         //already [..100]
 
         pass_config->set_callback<ov::pass::ScaledDotProductAttentionDecomposition>([&](const std::shared_ptr<const ov::Node> node){
@@ -632,6 +628,7 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         //already [..100]
         manager.register_pass<ov::pass::WrapInterpolateIntoTransposes>();
         manager.register_pass<ov::pass::TransposeSinking>();
+        // manager.register_pass<PrintPass>("", "GPU_after_transposeSinking.svg");
 
         if (!unroll_loop) {
             manager.register_pass<ov::pass::BidirectionalLSTMSequenceDecomposition>();
@@ -715,6 +712,15 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         manager.register_pass<ov::pass::ConvertPad12ToPad1, false>();
         manager.register_pass<DecomposeReduceForScalarOutput>();
 
+        auto nmsCallback = [](const_node_ptr& node) -> bool {
+            // TODO: remove nmsCallback at all
+            const bool isLegacyApi = false;
+            return isLegacyApi ? false : true;
+        };
+        manager.get_pass_config()->set_callback<ov::pass::ConvertNMS9ToNMSIEInternal>(nmsCallback);
+        manager.get_pass_config()->set_callback<ov::pass::ConvertMulticlassNmsToMulticlassNmsIE>(nmsCallback);
+        manager.get_pass_config()->set_callback<ov::pass::ConvertMatrixNmsToMatrixNmsIE>(nmsCallback);
+
         precisions_map int_convert_precision_map{
             {ov::element::i64, ov::element::i32},
             {ov::element::u64, ov::element::i32},
@@ -731,18 +737,14 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
 
         // To convert to f16 input to boolean which is converted to u8, add abs + ceiling + clamp before convert.
         type_to_fuse_map type_to_fuse = {{ov::opset10::Convert::get_type_info_static(), fuse_type_to_convert}};
-        manager.register_pass<StaticPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20",
-                                          "BEFORE ConvertPrecision two");
-        manager.register_pass<PrintPass>("!!! BEFORE ConvertPrecision two");
-        // manager.register_pass<PresentPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
+        manager.register_pass<PrintPass>("", "GPU_before_ConvertPrecision.svg");
         manager.register_pass<ov::pass::ConvertPrecision>(int_convert_precision_map,
                                                           type_to_fuse,
                                                           keep_precision_sensitive_in_fp32_2,
                                                           convert_input_output_precision,
                                                           false,
                                                           true);
-        // manager.register_pass<PresentPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
-        // manager.register_pass<PrintPass>("!!! AFTER ConvertPrecision two");
+        manager.register_pass<PrintPass>("", "GPU_after_ConvertPrecision.svg");
 
         pass_config->disable<ov::pass::EyeDecomposition>();
 
@@ -948,6 +950,7 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         pass_config->disable<ov::pass::ConvertGather7ToGather1>();
         pass_config->disable<ov::pass::ConvertTopK11ToTopK3>();
         pass_config->disable<ov::pass::GroupNormalizationDecomposition>();
+        pass_config->disable<ov::pass::SliceToStridedSlice>();
 
         pass_config->enable<ov::pass::ConvertInterpolate1ToInterpolate4>();
 
@@ -1333,8 +1336,8 @@ void TransformationsPipeline::apply(std::shared_ptr<ov::Model> func) {
         GPU_DEBUG_IF(config.get_verbose() >= 1) {
             manager.register_pass<ov::intel_gpu::PrintModelStatistics>();
         }
-        manager.register_pass<StaticPass>("Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/Shape_20",
-                                          "END OF PIPELINE");
+        manager.register_pass<PrintPass>("",
+                                         "GPU_end_of_tp_patched_patched.svg");
         manager.run_passes(func);
     }
 }

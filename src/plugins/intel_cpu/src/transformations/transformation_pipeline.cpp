@@ -353,30 +353,21 @@ void Transformations::CpuSpecificOpSet() {
 class PrintPass : public ov::pass::ModelPass {
 public:
     OPENVINO_MODEL_PASS_RTTI("PrintPass");
-    PrintPass(const std::string& name = "print_pass", const std::string& content = "", const std::string& device = "CPU") : m_content(content), m_device(device), m_name(name) {}
+    PrintPass(const std::string& content = "", const std::string& name = "print_pass") : m_content(content), m_name(name) {}
     bool run_on_model(const std::shared_ptr<ov::Model>& model) override {
-        // static bool can_print = false;
         static int counter = 0;
         bool body_to_print = required_body(model);
-        // if (can_print && body_to_print)
-            // std::cout << "----" << m_content << std::endl;
         for (auto& op : model->get_ordered_ops()) {
-            // if (can_print && body_to_print)
-                // std::cout << op->get_friendly_name()<< std::endl;
             if (auto sub_graph_node = ov::as_type_ptr<ov::op::util::MultiSubGraphOp>(op)) {
-                // can_print = true;
                 size_t sub_graphs_num = sub_graph_node->get_internal_subgraphs_size();
                 for (size_t sub_graph_ind = 0; sub_graph_ind < sub_graphs_num; ++sub_graph_ind) {
-                        // can_print = true;
                         run_on_model(sub_graph_node->get_function(static_cast<int>(sub_graph_ind)));
-                        // can_print = false;
                 }
             }
         }
-        // if (can_print && body_to_print) {
         if (body_to_print) {
             std::cout << "----" << std::endl << std::endl;
-            ov::pass::VisualizeTree(m_device + m_name + std::to_string(counter++) + ".svg").run_on_model(model);
+            ov::pass::VisualizeTree(m_name + std::to_string(counter++) + ".svg").run_on_model(model);
         }
         return true;
     }
@@ -392,7 +383,6 @@ public:
         }
 
     std::string m_content;
-    std::string m_device;
     std::string m_name;
 };
 
@@ -482,7 +472,9 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     decompression_handling_manager.set_per_pass_validation(false);
     CPU_REGISTER_PASS_COMMON(decompression_handling_manager, ov::pass::InitNodeInfo);
     const bool useLpt = !defaultPrecisions.empty();
-    CPU_REGISTER_PASS_COMMON(decompression_handling_manager, StaticPass, "", "BEGINNNING OF CPU PIPELINE");
+    std::cout << "!!!_HERE" << std::endl;
+    // CPU_REGISTER_PASS_COMMON(decompression_handling_manager, PrintPass, "", "CPU_BEGINNNING_OF_CPU_PIPELINE.svg");
+    // CPU_REGISTER_PASS_COMMON(decompression_handling_manager, StaticPass, "", "BEGINNNING OF CPU PIPELINE");
     CPU_REGISTER_PASS_COMMON(decompression_handling_manager, ov::pass::ConvertGatherToGatherCompressed);
     CPU_REGISTER_PASS_COMMON(decompression_handling_manager, ov::pass::MarkShapeOfSubgraphs);
     // We need to fuse Transpose to MatMul to have a simpler callback for the next transformation
@@ -524,9 +516,11 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
 
     ov::pass::Manager manager("Plugin:CPU");
     manager.set_per_pass_validation(false);
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "before_use_lpt.svg");
     if (useLpt) {
         CPU_REGISTER_PASS_COMMON(manager, ov::pass::MarkDequantization, defaultPrecisions);
     }
+    //dyn
 
     auto get_convert_precisions = [&]() {
         precisions_map map = {{ov::element::i64, ov::element::i32},
@@ -572,7 +566,9 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
                                  false);
         // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! AFTER ConvertPrecision one", "CPU");
     }
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "before_KeepConstAndDecompression.svg");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::KeepConstAndDecompression);
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "after_KeepConstAndDecompression.svg");
     CPU_SET_CALLBACK_COMMON(
         manager,
         [](const_node_ptr& node) -> bool {
@@ -583,6 +579,8 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
         },
         ov::pass::KeepConstAndDecompression);
 
+    //dyn
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "before_AUGRUCellFusion.svg");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::AUGRUCellFusion);
     CPU_REGISTER_PASS_COMMON(manager, SDPASubgraphFusion);
     ov::pass::ConvertPagedAttnInputs::KVCacheConfig cacheConfig;
@@ -599,7 +597,9 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     cacheConfig.keyCacheDimOrder = {0, 1, 2, 3};
     cacheConfig.valueCacheDimOrder = {0, 1, 2, 3};
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertPagedAttnInputs, cacheConfig);
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "before_CommonOptimizations.svg");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::CommonOptimizations);
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "after_CommonOptimizations.svg");
     CPU_REGISTER_PASS_X64(manager, ov::pass::KeepConstPrecision, decompression_precisions, false, true);
     CPU_SET_CALLBACK_X64(
         manager,
@@ -607,9 +607,12 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
             return !is_decompression_multiply(node);
         },
         ov::pass::KeepConstPrecision);
-    CPU_REGISTER_PASS_COMMON(manager, StaticPass, "", "before WrapInterpolateIntoTransposes");
+    //100
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "before_WrapInterpolateIntoTransposes.svg");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::WrapInterpolateIntoTransposes);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::TransposeSinking);
+    std::cout << "INSIDE CPU" << std::endl;
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "CPU_after_transposeSinking.svg");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertSequenceToTensorIterator);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertOpSet3ToOpSet2);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertOpSet2ToOpSet1);
@@ -627,9 +630,9 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConvertMatrixNmsToMatrixNmsIE);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::Validate);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::TransposeMatMul);
-    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "BEFORE_CONSTANT_FOLDING");
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "BEFORE_CONSTANT_FOLDING");
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConstantFolding, true);
-    CPU_REGISTER_PASS_COMMON(manager, PresentPass, "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
+    // CPU_REGISTER_PASS_COMMON(manager, PresentPass, "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/MultiClassNonMaxSuppression/zeros_19");
     CPU_REGISTER_PASS_ARM64(manager, ov::pass::HardSigmoidDecomposition);
 
     if (useLpt) {
@@ -648,14 +651,14 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     // element type convert is disabled.
     std::cout << "!!! TWO" << std::endl;
     CPU_REGISTER_PASS_COMMON(manager, StaticPass, "", "BEFORE ConvertPrecision two");
-    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! BEFORE ConvertPrecision two", "CPU");
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "CPU_before_ConvertPrecision.svg");
     CPU_REGISTER_PASS_COMMON(manager,
                              ov::pass::ConvertPrecision,
                              precisions,
                              type_to_fuse,
                              false,
                              convert_input_output_precision);
-    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "!!! AFTER ConvertPrecision two", "CPU");
+    CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "CPU_after_ConvertPrecision.svg");
 
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::EliminateConvert);
     CPU_REGISTER_PASS_COMMON(manager, SwapConvertTranspose);
@@ -905,6 +908,7 @@ void Transformations::PreLpt(const std::vector<ov::element::Type>& defaultPrecis
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::KeepConstAndDecompression);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::ConstantFolding);
     CPU_REGISTER_PASS_COMMON(manager, ov::pass::LoraSubgraphFusion);
+    // CPU_REGISTER_PASS_COMMON(manager, PrintPass, "", "CPU_END_OF_PRELPT.svg");
 
     manager.run_passes(model);
 }

@@ -157,7 +157,7 @@ bool ov::pass::ConstantFolding::run_on_model(const std::shared_ptr<ov::Model>& m
     bool rewritten = pre_calculated_values_folding(model);
 
     for (const auto& original_node : model->get_ordered_ops()) {
-        print_shapeof(model, original_node);
+        // print_shapeof(model, original_node);
         std::shared_ptr<ov::Node> consumer = nullptr;
         if (m_to_print && on_broadcast) {
             std::cout << "!!! 1) " << original_node << " output(0) is static: " << original_node->output(0).get_partial_shape().is_static() << std::endl;
