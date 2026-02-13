@@ -10,6 +10,7 @@
 #include "openvino/op/scaled_dot_product_attention.hpp"
 #include "openvino/op/shape_of.hpp"
 #include "openvino/op/subtract.hpp"
+#include "openvino/op/reshape.hpp"
 #include "openvino/op/unsqueeze.hpp"
 #include "openvino/pass/manager.hpp"
 #include "transformations/common_optimizations/sdpa_fusion.hpp"
@@ -158,23 +159,20 @@ bool ov::pass::SDPAToPagedAttention::run_on_model(const std::shared_ptr<ov::Mode
         model->add_parameters({position_ids});
     } else {
         position_ids = ov::as_type_ptr<v0::Parameter>(model->input("position_ids").get_node_shared_ptr());
-        auto orig_rank = position_ids->get_partial_shape().rank();
-        is_mrope = orig_rank.is_static() && orig_rank.get_length() == 3;
-        if (is_mrope) {
-            // M-RoPE: keep 2D [3, -1] so the caller provides [3, seq_len]
-            position_ids->set_partial_shape(PartialShape{3, -1});
-        } else {
-            position_ids->set_partial_shape(PartialShape{-1});
-        }
+        is_mrope = position_ids->get_partial_shape().rank().is_static() && position_ids->get_partial_shape().rank().get_length() == 3;
+        position_ids->set_partial_shape(PartialShape{-1});
         position_ids->validate_and_infer_types();
     }
     auto position_ids_target_inputs = position_ids->get_output_target_inputs(0);
 
-    // For M-RoPE: [3, seq_len] -> Unsqueeze(axis=2) -> [3, seq_len, 1]
-    // For standard: [seq_len] -> Unsqueeze(axis=1) -> [seq_len, 1]
-    auto unsqueeze_axis = is_mrope ? 2 : 1;
-    auto unsqueezed_position_ids =
-        std::make_shared<v0::Unsqueeze>(position_ids, v0::Constant::create(element::i32, Shape{}, {unsqueeze_axis}));
+    std::shared_ptr<ov::Node> unsqueezed_position_ids;
+    if (is_mrope) {
+        // Qwen2.5 VL M-RoPE [3*total_token_num] -> Reshape [3, -1] -> Unsqueeze(axis=-1) -> [3, total_token_num, 1]
+        auto reshaped = std::make_shared<v1::Reshape>(position_ids, v0::Constant::create(element::i64, Shape{2}, std::vector<int64_t>{3, -1}), false);
+        unsqueezed_position_ids = std::make_shared<v0::Unsqueeze>(reshaped, v0::Constant::create(element::i32, Shape{}, {-1}));
+    } else {
+        unsqueezed_position_ids = std::make_shared<v0::Unsqueeze>(position_ids, v0::Constant::create(element::i32, Shape{}, {-1}));
+    }
     for (const auto& target : position_ids_target_inputs) {
         target.replace_source_output(unsqueezed_position_ids);
     }
