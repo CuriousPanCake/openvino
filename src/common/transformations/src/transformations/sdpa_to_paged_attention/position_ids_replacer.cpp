@@ -105,6 +105,7 @@ ov::pass::PositionIDsReplacerQwen::PositionIDsReplacerQwen(const Output<Node>& p
                                            ov::pass::pattern::wrap_const()});
 
     ov::matcher_pass_callback callback = [=](Matcher& m) {
+        std::cout << matcher_name << " STARTED" << std::endl;
         const auto& pattern_map = m.get_pattern_value_map();
         auto max_context_len = pattern_map.at(p_max_context_len).get_node_shared_ptr();
         if (max_context_len->get_friendly_name() != "max_context_len") {
@@ -134,6 +135,7 @@ ov::pass::PositionIDsReplacerQwen::PositionIDsReplacerQwen(const Output<Node>& p
         auto new_shape = v0::Constant::create(element::i64, Shape{4}, std::vector<int64_t>{-1, 1, 1, head_size});
         auto reshape = std::make_shared<v1::Reshape>(gather, new_shape, false);
         replace_node(slice_2, reshape);
+        std::cout << matcher_name << " FINISHED" << std::endl;
         return true;
     };
 

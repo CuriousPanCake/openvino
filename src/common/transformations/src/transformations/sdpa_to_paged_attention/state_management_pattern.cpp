@@ -435,6 +435,7 @@ ov::pass::StateManagementPattern::StateManagementPattern(
                                           &adaptive_rkv_diversity_block_set_indices_begins_inputs_for_each_layer,
                                           &adaptive_rkv_diversity_results,
                                           &var_ids_to_remove](Matcher& m) {
+        std::cout << matcher_name << " START" << std::endl;
         const auto& pattern_map = m.get_pattern_value_map();
         const auto& real_q = pattern_map.at(q);
 
@@ -771,6 +772,7 @@ ov::pass::StateManagementPattern::StateManagementPattern(
 
         pa_transpose->set_friendly_name(sdpa_node->get_friendly_name());
         replace_node(m.get_match_root(), pa_transpose);
+        std::cout << matcher_name << " END" << std::endl;
         return true;
     };
 

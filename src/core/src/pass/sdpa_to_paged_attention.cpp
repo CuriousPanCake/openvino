@@ -152,17 +152,29 @@ bool ov::pass::SDPAToPagedAttention::run_on_model(const std::shared_ptr<ov::Mode
     ResultVector adaptive_rkv_diversity_results;
 
     std::shared_ptr<v0::Parameter> position_ids;
+    bool is_mrope = false;
     if (!get_parameter(model, "position_ids")) {
         position_ids = named_parameter(std::make_shared<v0::Parameter>(element::i64, PartialShape{-1}), "position_ids");
         model->add_parameters({position_ids});
     } else {
         position_ids = ov::as_type_ptr<v0::Parameter>(model->input("position_ids").get_node_shared_ptr());
-        position_ids->set_partial_shape(PartialShape{-1});
+        auto orig_rank = position_ids->get_partial_shape().rank();
+        is_mrope = orig_rank.is_static() && orig_rank.get_length() == 3;
+        if (is_mrope) {
+            // M-RoPE: keep 2D [3, -1] so the caller provides [3, seq_len]
+            position_ids->set_partial_shape(PartialShape{3, -1});
+        } else {
+            position_ids->set_partial_shape(PartialShape{-1});
+        }
         position_ids->validate_and_infer_types();
     }
     auto position_ids_target_inputs = position_ids->get_output_target_inputs(0);
+
+    // For M-RoPE: [3, seq_len] -> Unsqueeze(axis=2) -> [3, seq_len, 1]
+    // For standard: [seq_len] -> Unsqueeze(axis=1) -> [seq_len, 1]
+    auto unsqueeze_axis = is_mrope ? 2 : 1;
     auto unsqueezed_position_ids =
-        std::make_shared<v0::Unsqueeze>(position_ids, v0::Constant::create(element::i32, Shape{}, {1}));
+        std::make_shared<v0::Unsqueeze>(position_ids, v0::Constant::create(element::i32, Shape{}, {unsqueeze_axis}));
     for (const auto& target : position_ids_target_inputs) {
         target.replace_source_output(unsqueezed_position_ids);
     }
