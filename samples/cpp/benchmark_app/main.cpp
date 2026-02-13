@@ -389,7 +389,7 @@ int main(int argc, char* argv[]) {
                 pos_ids.data<int64_t>()[i] = i;
             req.set_tensor("position_ids", pos_ids);
         } else {
-            // M-RoPE without fix: flatten [temporal, height, width] to [3*seq_len]
+            // M-RoPE: flat [3*seq_len] — transformation reshapes internally
             auto pos_ids = ov::Tensor(ov::element::i64, {3 * (size_t)prefill_len});
             auto* data = pos_ids.data<int64_t>();
             for (int64_t i = 0; i < prefill_len; i++)
@@ -424,7 +424,7 @@ int main(int argc, char* argv[]) {
             pos_ids.data<int64_t>()[0] = position;
             req.set_tensor("position_ids", pos_ids);
         } else {
-            // M-RoPE without fix: flatten [temporal, height, width] to [3]
+            // M-RoPE: flat [3] — transformation reshapes internally
             auto pos_ids = ov::Tensor(ov::element::i64, {3});
             auto* data = pos_ids.data<int64_t>();
             data[0] = position;  // temporal
